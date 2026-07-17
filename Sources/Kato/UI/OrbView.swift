@@ -11,17 +11,17 @@ struct OrbView: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             mascot
-                .frame(width: 56, height: 56)
+                .frame(width: 224, height: 224)
             if count > 0 {
                 Text("\(min(count, 99))")
-                    .font(.caption2.bold())
+                    .font(.title3.bold())
                     .foregroundStyle(.white)
-                    .padding(5)
+                    .padding(12)
                     .background(Circle().fill(.red))
-                    .offset(x: 6, y: -6)
+                    .offset(x: 14, y: -14)
             }
         }
-        .frame(width: 64, height: 64)
+        .frame(width: 256, height: 256)
         .contentShape(Rectangle())
         .accessibilityLabel("Kato, \(count) events")
     }

@@ -105,6 +105,16 @@ final class AppState: ObservableObject {
                 self?.recomputeMascotState() // success → idle decay check
             }
         }
+
+        // 5. Show the floating orb immediately — the mascot is the app's
+        //    primary face, so it's visible without a menu click.
+        showPanel()
+    }
+
+    func showPanel() {
+        if panelController == nil {
+            panelController = FloatingPanelController(appState: self)
+        }
     }
 
     // MARK: - Mascot state

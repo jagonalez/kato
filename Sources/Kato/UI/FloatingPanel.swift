@@ -9,7 +9,7 @@ final class FloatingPanel: NSPanel {
 
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 64, height: 64),
+            contentRect: NSRect(x: 0, y: 0, width: 256, height: 256),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -29,7 +29,7 @@ final class FloatingPanelController: ObservableObject {
     @Published private(set) var expanded = false
 
     private let panel: FloatingPanel
-    private let collapsedSize = NSSize(width: 64, height: 64)
+    private let collapsedSize = NSSize(width: 256, height: 256)
     private let expandedSize = NSSize(width: 420, height: 540)
 
     init(appState: AppState) {

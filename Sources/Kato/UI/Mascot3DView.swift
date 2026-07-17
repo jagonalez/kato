@@ -127,14 +127,17 @@ extension Mascot3DView {
             let scene = SCNScene()
             scene.rootNode.addChildNode(character.actionNode)
 
-            // Camera — narrow FOV ≈ 35mm look.
+            // Camera — narrow FOV ≈ 35mm look. Framed to the character's
+            // true vertical span (paws y≈-1.0 … antenna tip y≈+1.48, center
+            // ≈ +0.25) with headroom for the hover bob and success hop, so
+            // nothing clips at the viewport edges.
             let cameraNode = SCNNode()
             let camera = SCNCamera()
             camera.fieldOfView = 28
             cameraNode.camera = camera
-            cameraNode.position = SCNVector3(0, 0.15, 3.6)
+            cameraNode.position = SCNVector3(0, 0.35, 5.8)
             let cameraTarget = SCNNode()
-            cameraTarget.position = SCNVector3(0, 0.05, 0)
+            cameraTarget.position = SCNVector3(0, 0.25, 0)
             scene.rootNode.addChildNode(cameraTarget)
             cameraNode.constraints = [SCNLookAtConstraint(target: cameraTarget)]
             scene.rootNode.addChildNode(cameraNode)

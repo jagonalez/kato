@@ -11,7 +11,7 @@ import KatoCore
 ///       development and headless smoke testing.
 @MainActor
 enum KatoCLI {
-    static let knownSubcommands: Set<String> = ["hook", "focus-test", "serve"]
+    static let knownSubcommands: Set<String> = ["hook", "focus-test", "serve", "assets-check"]
 
     static func run(subcommand: String, arguments: [String]) async -> Int32 {
         switch subcommand {
@@ -21,9 +21,31 @@ enum KatoCLI {
             return runFocusTest(arguments)
         case "serve":
             return runServe()
+        case "assets-check":
+            return runAssetsCheck()
         default:
             return 2
         }
+    }
+
+    // MARK: - kato assets-check
+
+    /// Debug path: verifies AssetLoader resolves all mascot images in the
+    /// current (dev or bundled) mode.
+    private static func runAssetsCheck() -> Int32 {
+        let names = ["kato-idle", "kato-alert", "kato-success", "kato-appicon"]
+        var missing = 0
+        for name in names {
+            if let url = AssetLoader.url(forImageNamed: name),
+               AssetLoader.image(named: name) != nil {
+                print("OK      \(name) → \(url.path)")
+            } else {
+                print("MISSING \(name)")
+                missing += 1
+            }
+        }
+        print(missing == 0 ? "all assets found" : "\(missing) asset(s) missing")
+        return missing == 0 ? 0 : 1
     }
 
     // MARK: - kato hook

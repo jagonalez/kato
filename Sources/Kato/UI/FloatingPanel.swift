@@ -83,7 +83,7 @@ struct FloatingPanelView: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
                 .padding(4)
             } else {
-                OrbView(count: appState.events.count)
+                OrbView(count: appState.events.count, state: appState.mascotState)
                     .onTapGesture {
                         controller.toggle()
                     }
@@ -114,7 +114,13 @@ struct FloatingPanelView: View {
     }
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 8) {
+            if let mascot = AssetLoader.image(named: MascotState.idle.imageName) {
+                Image(nsImage: mascot)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 28, height: 28)
+            }
             Text("Kato")
                 .font(.title3.weight(.semibold))
             Spacer()

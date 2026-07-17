@@ -36,6 +36,7 @@ final class AppState: ObservableObject {
     @Published private(set) var events: [KatoEvent] = []
     @Published var lastFocusError: String?
     @Published private(set) var accessibilityTrusted = false
+    @Published private(set) var mascotState: MascotState = .idle
 
     let bus = EventBus()
     private var hookServer: HookServer?
@@ -44,6 +45,7 @@ final class AppState: ObservableObject {
     private var panelController: FloatingPanelController?
     private var activationObserver: NSObjectProtocol?
     private var permissionTimer: Timer?
+    private var lastEventAt: Date?
     private var didStart = false
 
     nonisolated init() {}
@@ -76,7 +78,14 @@ final class AppState: ObservableObject {
             await bus.loadPersisted()
             let stream = await bus.stream()
             for await snapshot in stream {
-                self?.events = snapshot
+                guard let self else { continue }
+                // Treat a new top event (or count change) as fresh activity
+                // for the mascot's success-decay window.
+                if snapshot.count != self.events.count || snapshot.first?.id != self.events.first?.id {
+                    self.lastEventAt = Date()
+                }
+                self.events = snapshot
+                self.recomputeMascotState()
             }
         }
 
@@ -91,8 +100,17 @@ final class AppState: ObservableObject {
             Task { @MainActor in self?.refreshAccessibilityStatus() }
         }
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refreshAccessibilityStatus() }
+            Task { @MainActor in
+                self?.refreshAccessibilityStatus()
+                self?.recomputeMascotState() // success → idle decay check
+            }
         }
+    }
+
+    // MARK: - Mascot state
+
+    func recomputeMascotState() {
+        mascotState = MascotState.resolve(events: events, lastEventAt: lastEventAt)
     }
 
     // MARK: - Accessibility permission

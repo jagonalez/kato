@@ -10,8 +10,34 @@ swift build -c release
 APP="build/Kato.app"
 echo "==> assembling $APP"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Kato "$APP/Contents/MacOS/Kato"
+
+# App icon: crop the rounded tile out of the black margin, apply the
+# Apple-style rounded-rect alpha mask, emit an .iconset, compile to .icns.
+# Needs python3 with PIL + numpy; falls back to the Kimi managed runtime.
+echo "==> building Kato.icns"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+if ! "$PYTHON_BIN" -c 'import PIL, numpy' 2>/dev/null; then
+    for candidate in \
+        "$HOME/Library/Application Support/kimi-desktop/daimon-share/daimon/runtime/python/.venv/bin/python3" \
+        "$HOME/Library/Application Support/kimi-desktop/daimon-share/daimon/runtime/python/bin/python3"; do
+        if [ -x "$candidate" ] && "$candidate" -c 'import PIL, numpy' 2>/dev/null; then
+            PYTHON_BIN="$candidate"
+            break
+        fi
+    done
+fi
+if ! "$PYTHON_BIN" -c 'import PIL, numpy' 2>/dev/null; then
+    echo "error: no python3 with PIL + numpy found (set PYTHON_BIN)" >&2
+    exit 1
+fi
+"$PYTHON_BIN" Scripts/make-icon.py Assets/Mascot/kato-appicon.png build/Kato.iconset
+iconutil -c icns build/Kato.iconset -o "$APP/Contents/Resources/Kato.icns"
+
+# Ship the mascot artwork inside the bundle so AssetLoader finds it via
+# Bundle.main.resourceURL in packaged mode.
+cp -R Assets "$APP/Contents/Resources/Assets"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -21,6 +47,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
+    <string>Kato</string>
+    <key>CFBundleIconFile</key>
     <string>Kato</string>
     <key>CFBundleIdentifier</key>
     <string>dev.kato.app</string>

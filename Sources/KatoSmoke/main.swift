@@ -134,6 +134,40 @@ check(priorityEvent?.detail == "bob requested changes · alice commented · CI p
 check(GitHubMonitor.htmlURL(forAPIURL: "https://api.github.com/repos/helm/pull/pulls/7")?.absoluteString == prURL,
       "notification API URL maps to the PR html URL")
 
+// MARK: - MascotIdleRotation (idle personality cycle)
+
+check(MascotIdleRotation.variants == ["kato-idle", "kato-idle-sleep", "kato-idle-play", "kato-idle-work"],
+      "idle variants in spec order")
+check(MascotIdleRotation.interval == 45, "rotation interval is ~45 s")
+
+var rotation = MascotIdleRotation()
+check(rotation.imageName == "kato-idle", "rotation starts at kato-idle")
+
+let t0 = Date(timeIntervalSince1970: 1_000_000)
+rotation.update(active: true, now: t0)
+check(rotation.imageName == "kato-idle", "still base artwork right after entering idle")
+rotation.update(active: true, now: t0.addingTimeInterval(44))
+check(rotation.imageName == "kato-idle", "no swap before 45 s")
+rotation.update(active: true, now: t0.addingTimeInterval(46))
+check(rotation.imageName == "kato-idle-sleep", "first swap at ~45 s → kato-idle-sleep")
+rotation.update(active: true, now: t0.addingTimeInterval(46 + 45))
+check(rotation.imageName == "kato-idle-play", "second swap → kato-idle-play")
+rotation.update(active: true, now: t0.addingTimeInterval(46 + 90))
+check(rotation.imageName == "kato-idle-work", "third swap → kato-idle-work")
+rotation.update(active: true, now: t0.addingTimeInterval(46 + 135))
+check(rotation.imageName == "kato-idle", "wraps back to kato-idle")
+
+// alert/success takeover resets the cycle; re-entering idle starts at base.
+var takeover = MascotIdleRotation()
+let t1 = t0.addingTimeInterval(300)
+takeover.update(active: true, now: t1)
+takeover.update(active: true, now: t1.addingTimeInterval(50))
+check(takeover.imageName == "kato-idle-sleep", "advanced before takeover")
+takeover.update(active: false, now: t1.addingTimeInterval(60))
+check(takeover.imageName == "kato-idle", "non-idle state resets rotation to kato-idle")
+takeover.update(active: true, now: t1.addingTimeInterval(70))
+check(takeover.imageName == "kato-idle", "re-entering idle starts at kato-idle")
+
 // MARK: - HookServer HTTP round-trip
 
 final class Box: @unchecked Sendable { var event: KatoEvent? }

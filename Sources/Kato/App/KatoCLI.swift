@@ -33,7 +33,10 @@ enum KatoCLI {
     /// Debug path: verifies AssetLoader resolves all mascot images in the
     /// current (dev or bundled) mode.
     private static func runAssetsCheck() -> Int32 {
-        let names = ["kato-idle", "kato-alert", "kato-success", "kato-appicon"]
+        let names = [
+            "kato-idle", "kato-idle-sleep", "kato-idle-play", "kato-idle-work",
+            "kato-alert", "kato-success", "kato-appicon",
+        ]
         var missing = 0
         for name in names {
             if let url = AssetLoader.url(forImageNamed: name),

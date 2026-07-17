@@ -83,7 +83,7 @@ struct FloatingPanelView: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
                 .padding(4)
             } else {
-                OrbView(count: appState.events.count, state: appState.mascotState)
+                OrbView(count: appState.events.count, imageName: appState.mascotImageName)
                     .onTapGesture {
                         controller.toggle()
                     }

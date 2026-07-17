@@ -37,6 +37,8 @@ final class AppState: ObservableObject {
     @Published var lastFocusError: String?
     @Published private(set) var accessibilityTrusted = false
     @Published private(set) var mascotState: MascotState = .idle
+    /// Effective artwork the orb should render (idle variants included).
+    @Published private(set) var mascotImageName: String = MascotIdleRotation.variants[0]
 
     let bus = EventBus()
     private var hookServer: HookServer?
@@ -46,6 +48,7 @@ final class AppState: ObservableObject {
     private var activationObserver: NSObjectProtocol?
     private var permissionTimer: Timer?
     private var lastEventAt: Date?
+    private var idleRotation = MascotIdleRotation()
     private var didStart = false
 
     nonisolated init() {}
@@ -121,6 +124,10 @@ final class AppState: ObservableObject {
 
     func recomputeMascotState() {
         mascotState = MascotState.resolve(events: events, lastEventAt: lastEventAt)
+        // Idle personality rotation (driven by the 5 s timer / event updates;
+        // resets to kato-idle whenever alert/success takes over).
+        idleRotation.update(active: mascotState == .idle)
+        mascotImageName = mascotState == .idle ? idleRotation.imageName : mascotState.imageName
     }
 
     // MARK: - Accessibility permission

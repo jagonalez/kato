@@ -44,6 +44,7 @@ def clean_opaque(path: Path) -> None:
     print(f"cleaned (fill {fill.astype(int)}) {path.name} {out.size}")
 
 
-for name in ["kato-idle.png", "kato-alert.png", "kato-success.png"]:
+for name in ["kato-idle.png", "kato-alert.png", "kato-success.png",
+             "kato-idle-sleep.png", "kato-idle-play.png", "kato-idle-work.png"]:
     clean_transparent(ASSETS / name)
 clean_opaque(ASSETS / "kato-appicon.png")

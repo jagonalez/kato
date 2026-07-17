@@ -1,12 +1,13 @@
 import SwiftUI
 
 /// Collapsed face of the floating panel: the mascot with a badge count.
-/// The mascot image reflects `state` (idle / alert / success) with a smooth
-/// crossfade when it changes; falls back to the old gradient orb if the
-/// artwork can't be found.
+/// The mascot image reflects the current artwork (idle / alert / success /
+/// idle variants) with a smooth crossfade when it changes; falls back to the
+/// old gradient orb if the artwork can't be found.
 struct OrbView: View {
     let count: Int
-    let state: MascotState
+    /// Artwork to render (e.g. "kato-idle-sleep") — includes idle variants.
+    let imageName: String
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -28,7 +29,7 @@ struct OrbView: View {
 
     private var mascot: some View {
         Group {
-            if let image = AssetLoader.image(named: state.imageName) {
+            if let image = AssetLoader.image(named: imageName) {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFit()
@@ -36,10 +37,10 @@ struct OrbView: View {
                 fallbackOrb
             }
         }
-        // Crossfade (~0.3 s) when the state image changes.
-        .id(state)
+        // Crossfade (~0.3 s) when the artwork swaps (state or idle variant).
+        .id(imageName)
         .transition(.opacity)
-        .animation(.easeInOut(duration: 0.3), value: state)
+        .animation(.easeInOut(duration: 0.3), value: imageName)
     }
 
     private var fallbackOrb: some View {

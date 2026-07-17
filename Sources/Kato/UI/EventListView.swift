@@ -10,11 +10,7 @@ struct EventListView: View {
 
     var body: some View {
         if events.isEmpty {
-            ContentUnavailableView(
-                "No events",
-                systemImage: "checkmark.circle",
-                description: Text("Agent, CI and PR events will show up here.")
-            )
+            emptyState
         } else {
             List(events) { event in
                 Button {
@@ -26,6 +22,29 @@ struct EventListView: View {
             }
             .listStyle(.plain)
         }
+    }
+
+    /// Custom branded empty state. (ContentUnavailableView on macOS does
+    /// aggressive vertical centering inside plain VStacks and pushed the
+    /// panel header down, leaving a dead band at the top.)
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Spacer()
+            if let mascot = AssetLoader.image(named: "kato-idle") {
+                Image(nsImage: mascot)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 90, height: 90)
+            }
+            Text("No events")
+                .font(.title3.weight(.semibold))
+            Text("Agent, CI and PR events will show up here.")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func row(for event: KatoEvent) -> some View {

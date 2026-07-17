@@ -33,8 +33,12 @@ final class FloatingPanelController: ObservableObject {
     private let expandedSize = NSSize(width: 420, height: 540)
 
     init(appState: AppState) {
+        // TEMP DEBUG (revert after screenshot verification): allow launching
+        // with the panel expanded via KATO_EXPANDED=1.
+        expanded = ProcessInfo.processInfo.environment["KATO_EXPANDED"] == "1"
         panel = FloatingPanel()
         let hosting = NSHostingView(rootView: FloatingPanelView(appState: appState, controller: self))
+        hosting.autoresizingMask = [.width, .height]
         panel.contentView = hosting
         layout(animated: false)
         panel.orderFrontRegardless()
@@ -47,6 +51,13 @@ final class FloatingPanelController: ObservableObject {
 
     private func layout(animated: Bool) {
         let size = expanded ? expandedSize : collapsedSize
+        // The panel has exactly two fixed sizes. Clamp min == max so greedy
+        // SwiftUI content (List / Spacer fitting-size passes) can never
+        // inflate the window — without this the expanded window was observed
+        // growing from 420×540 to 420×964, and the (previously centered)
+        // content left a dead band above the header.
+        panel.contentMinSize = size
+        panel.contentMaxSize = size
         guard let screen = NSScreen.main ?? NSScreen.screens.first else {
             panel.setContentSize(size)
             return
@@ -66,31 +77,40 @@ struct FloatingPanelView: View {
     @ObservedObject var controller: FloatingPanelController
 
     var body: some View {
-        Group {
-            if controller.expanded {
-                VStack(spacing: 0) {
-                    if !appState.accessibilityTrusted {
-                        accessibilityBanner
-                        Divider()
-                    }
-                    header
-                    Divider()
-                    EventListView(events: appState.events) { event in
-                        appState.select(event)
-                    }
+        // Plain top-level conditional (no Group wrapper): only the active
+        // branch contributes layout, so the collapsed orb's fixed 256×256
+        // frame can never union-size or shift the expanded layout.
+        if controller.expanded {
+            expandedBody
+                // TCC changes don't notify; re-check whenever the panel shows.
+                .onAppear { appState.refreshAccessibilityStatus() }
+        } else {
+            OrbView(count: appState.events.count,
+                    imageName: appState.mascotImageName,
+                    state: appState.mascotState)
+                .onTapGesture {
+                    controller.toggle()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-                .padding(4)
-            } else {
-                OrbView(count: appState.events.count, imageName: appState.mascotImageName)
-                    .onTapGesture {
-                        controller.toggle()
-                    }
+                .onAppear { appState.refreshAccessibilityStatus() }
+        }
+    }
+
+    private var expandedBody: some View {
+        VStack(spacing: 0) {
+            if !appState.accessibilityTrusted {
+                accessibilityBanner
+                Divider()
+            }
+            header
+            Divider()
+            EventListView(events: appState.events) { event in
+                appState.select(event)
             }
         }
-        // TCC changes don't notify; re-check whenever the panel shows.
-        .onAppear { appState.refreshAccessibilityStatus() }
+        // Pin content to the very top of the panel.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .padding(4)
     }
 
     /// Persistent warning shown while AX permission is missing.

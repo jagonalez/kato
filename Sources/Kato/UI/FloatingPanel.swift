@@ -18,7 +18,7 @@ final class FloatingPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        hasShadow = false // enabled only while expanded (see layout())
         isMovableByWindowBackground = true
         hidesOnDeactivate = false
     }
@@ -63,6 +63,11 @@ final class FloatingPanelController: ObservableObject {
             return
         }
         let margin: CGFloat = 16
+        // Shadow only in expanded mode: on the transparent collapsed orb the
+        // window shadow outlines the whole panel rect (a static gray ring,
+        // very visible on light backgrounds). The expanded card is opaque,
+        // so the shadow hugs it correctly there.
+        panel.hasShadow = expanded
         // Anchor top-right of the visible frame; resize downward from the same corner.
         let origin = NSPoint(
             x: screen.visibleFrame.maxX - size.width - margin,

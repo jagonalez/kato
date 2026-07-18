@@ -33,9 +33,6 @@ final class FloatingPanelController: ObservableObject {
     private let expandedSize = NSSize(width: 420, height: 540)
 
     init(appState: AppState) {
-        // TEMP DEBUG (revert after screenshot verification): allow launching
-        // with the panel expanded via KATO_EXPANDED=1.
-        expanded = ProcessInfo.processInfo.environment["KATO_EXPANDED"] == "1"
         panel = FloatingPanel()
         let hosting = NSHostingView(rootView: FloatingPanelView(appState: appState, controller: self))
         hosting.autoresizingMask = [.width, .height]

@@ -6,12 +6,15 @@ import KatoCore
 ///       POSTs an event to the local hook server (also used for smoke tests).
 ///   kato focus-test "title-token"
 ///       Exercises FocusController directly against Ghostty.
+///   kato ax-dump [bundle-id]
+///       Dumps the running Ghostty (or other app's) accessibility tree:
+///       window titles, tab groups, tab buttons, roles and selected state.
 ///   kato serve
 ///       Runs just the HookServer (+ EventBus) in the foreground — handy for
 ///       development and headless smoke testing.
 @MainActor
 enum KatoCLI {
-    static let knownSubcommands: Set<String> = ["hook", "focus-test", "serve", "assets-check"]
+    static let knownSubcommands: Set<String> = ["hook", "focus-test", "serve", "assets-check", "ax-dump"]
 
     static func run(subcommand: String, arguments: [String]) async -> Int32 {
         switch subcommand {
@@ -23,6 +26,8 @@ enum KatoCLI {
             return runServe()
         case "assets-check":
             return runAssetsCheck()
+        case "ax-dump":
+            return runAXDump(arguments)
         default:
             return 2
         }
@@ -57,7 +62,7 @@ enum KatoCLI {
         let options = parseOptions(args)
         guard let kind = options["kind"], let title = options["title"] else {
             FileHandle.standardError.write(Data("""
-            usage: kato hook --kind <kind> --title <title> [--detail <text>] [--cwd <path>] [--tty <tty>] [--pid <pid>] [--url <url>]
+            usage: kato hook --kind <kind> --title <title> [--detail <text>] [--cwd <path>] [--tty <tty>] [--pid <pid>] [--url <url>] [--tmux <session:window.pane>]
 
             """.utf8))
             return 2
@@ -69,7 +74,8 @@ enum KatoCLI {
             tty: options["tty"],
             cwd: options["cwd"] ?? FileManager.default.currentDirectoryPath,
             pid: options["pid"].flatMap(Int32.init),
-            url: options["url"]
+            url: options["url"],
+            tmux: options["tmux"]
         )
         var request = URLRequest(url: URL(string: "http://127.0.0.1:\(HookServer.defaultPort)/event")!)
         request.httpMethod = "POST"
@@ -96,16 +102,19 @@ enum KatoCLI {
 
     private static func runFocusTest(_ args: [String]) -> Int32 {
         guard let token = args.first(where: { !$0.hasPrefix("--") }) else {
-            FileHandle.standardError.write(Data("usage: kato focus-test <window-title-token>\n".utf8))
+            FileHandle.standardError.write(Data("usage: kato focus-test <window-title-token> [--tmux <session:window.pane>] [--tty <tty>]\n".utf8))
             return 2
         }
+        let options = parseOptions(args)
         if !FocusController.isAccessibilityTrusted() {
             print("Accessibility permission not granted yet — requesting (grant it, then re-run)…")
             FocusController.requestAccessibilityPermission()
         }
         let target = FocusTarget(
             appBundleID: TerminalTitleResolver.ghosttyBundleID,
-            windowTitleToken: token
+            windowTitleToken: token,
+            tmuxTarget: options["tmux"],
+            tty: options["tty"]
         )
         switch FocusController().focus(target) {
         case .success:
@@ -115,6 +124,19 @@ enum KatoCLI {
             print("focus failed: \(error)")
             return 1
         }
+    }
+
+    // MARK: - kato ax-dump
+
+    private static func runAXDump(_ args: [String]) -> Int32 {
+        let bundleID = args.first(where: { !$0.hasPrefix("--") })
+            ?? TerminalTitleResolver.ghosttyBundleID
+        if !FocusController.isAccessibilityTrusted() {
+            print("Accessibility permission not granted yet — requesting (grant it, then re-run)…")
+            FocusController.requestAccessibilityPermission()
+        }
+        print(AXDumper.dump(bundleID: bundleID))
+        return 0
     }
 
     // MARK: - kato serve

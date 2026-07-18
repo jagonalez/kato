@@ -15,6 +15,9 @@ public final class HookServer: @unchecked Sendable {
         public var cwd: String?
         public var pid: Int32?
         public var url: String?
+        /// tmux "session:window.pane" of the originating process, when the
+        /// agent runs inside tmux (enables deterministic focus).
+        public var tmux: String?
 
         public init(
             kind: String,
@@ -23,7 +26,8 @@ public final class HookServer: @unchecked Sendable {
             tty: String? = nil,
             cwd: String? = nil,
             pid: Int32? = nil,
-            url: String? = nil
+            url: String? = nil,
+            tmux: String? = nil
         ) {
             self.kind = kind
             self.title = title
@@ -32,6 +36,7 @@ public final class HookServer: @unchecked Sendable {
             self.cwd = cwd
             self.pid = pid
             self.url = url
+            self.tmux = tmux
         }
     }
 
@@ -154,7 +159,8 @@ public final class HookServer: @unchecked Sendable {
         default:
             kind = KatoEvent.Kind(rawValue: payload.kind) ?? .agentDone
         }
-        let focus = TerminalTitleResolver.focusTarget(cwd: payload.cwd, tty: payload.tty, pid: payload.pid)
+        let focus = TerminalTitleResolver.focusTarget(cwd: payload.cwd, tty: payload.tty,
+                                                      pid: payload.pid, tmux: payload.tmux)
         let url = payload.url.flatMap { URL(string: $0) }
         let identity = payload.tty ?? payload.pid.map(String.init) ?? payload.title
         return KatoEvent(

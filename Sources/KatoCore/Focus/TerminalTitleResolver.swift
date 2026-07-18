@@ -9,10 +9,13 @@ import Foundation
 public enum TerminalTitleResolver {
     public static let ghosttyBundleID = "com.mitchellh.ghostty"
 
-    public static func focusTarget(cwd: String?, tty: String?, pid: Int32?) -> FocusTarget? {
+    public static func focusTarget(cwd: String?, tty: String?, pid: Int32?, tmux: String? = nil) -> FocusTarget? {
         guard let cwd, !cwd.isEmpty else { return nil }
         let token = URL(fileURLWithPath: cwd).lastPathComponent
         guard !token.isEmpty else { return nil }
-        return FocusTarget(appBundleID: ghosttyBundleID, windowTitleToken: token, processPID: pid)
+        return FocusTarget(appBundleID: ghosttyBundleID, windowTitleToken: token,
+                           processPID: pid,
+                           tmuxTarget: tmux.flatMap { $0.isEmpty ? nil : $0 },
+                           tty: tty.flatMap { $0.isEmpty ? nil : $0 })
     }
 }

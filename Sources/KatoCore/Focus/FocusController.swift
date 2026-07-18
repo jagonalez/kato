@@ -28,10 +28,17 @@ public enum FocusError: Error, CustomStringConvertible {
 /// Raises the exact window + native tab that needs the user.
 /// See docs/ARCHITECTURE.md §"Ghostty window+tab focus (the hard part)".
 ///
-/// Strategy: iterate the target app's AX windows; match `windowTitleToken`
-/// against window titles AND the titles of native macOS window tabs
-/// (AXTabGroup → AXRadioButton children); select the matching tab
-/// (AXSelected / AXPress), AXRaise the window, then activate the app.
+/// Ghostty AX reality (measured via `kato ax-dump`, 2026-07-17): every
+/// Ghostty tab is its own AXWindow whose title reflects that tab, and the
+/// app exposes exactly ONE AXTabGroup ("tab bar", attached to a single
+/// window) whose AXRadioButton(AXTabButton) children carry readable titles
+/// for ALL tabs — selected tab has AXValue == 1. AXRaise on a background
+/// tab's window does NOT select the tab (the user's bug); the radio button
+/// must be selected explicitly, then its window raised.
+///
+/// When the event carries tmux info, TmuxResolver runs FIRST (deterministic
+/// server-side window/pane selection); the AX pass then just raises the
+/// front terminal window.
 public struct FocusController: Sendable {
     public init() {}
 
@@ -54,27 +61,44 @@ public struct FocusController: Sendable {
     @MainActor
     @discardableResult
     public func focus(_ target: FocusTarget) -> Result<Void, FocusError> {
+        // Deterministic path: select the tmux window/pane server-side first,
+        // so whichever terminal window we raise already shows the right pane.
+        if let selected = TmuxResolver.select(target: target) {
+            FileHandle.standardError.write(Data("kato: tmux selected \(selected)\n".utf8))
+        }
+
         guard Self.isAccessibilityTrusted() else { return .failure(.accessibilityNotTrusted) }
 
         let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: target.appBundleID)
         guard let app = runningApps.first else { return .failure(.appNotRunning(target.appBundleID)) }
 
-        let axApp = AXUIElementCreateApplication(app.processIdentifier)
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &value)
-        guard error == .success else { return .failure(.axError("AXWindows", error)) }
-        guard let windows = value as? [AXUIElement], !windows.isEmpty else {
+        guard let windows = axWindows(of: app), !windows.isEmpty else {
             return .failure(.noWindows(target.appBundleID))
         }
 
+        // 1. Tab-first: find the app's tab bar across ALL windows (Ghostty
+        //    attaches it to only one) and select the matching radio button.
+        if let tabGroup = findTabGroup(underAnyOf: windows) {
+            for tab in axChildren(of: tabGroup) {
+                guard axRole(of: tab) == "AXRadioButton",
+                      let title = axTitle(of: tab),
+                      title.localizedCaseInsensitiveContains(target.windowTitleToken)
+                else { continue }
+                let selected = select(tab)
+                if !selected {
+                    FileHandle.standardError.write(Data(
+                        "kato: tab press did not read back as selected; raising anyway\n".utf8))
+                }
+                raiseWindow(for: target.windowTitleToken, tabTitle: title,
+                            tabGroupOwner: tabGroup, of: app)
+                return .success(())
+            }
+        }
+
+        // 2. Window-title fallback (apps without an AX tab bar).
         for window in windows {
             if let title = axTitle(of: window),
                title.localizedCaseInsensitiveContains(target.windowTitleToken) {
-                selectMatchingTab(in: window, token: target.windowTitleToken)
-                raise(window, of: app)
-                return .success(())
-            }
-            if selectMatchingTab(in: window, token: target.windowTitleToken) {
                 raise(window, of: app)
                 return .success(())
             }
@@ -84,28 +108,75 @@ public struct FocusController: Sendable {
 
     // MARK: - Internals
 
+    /// Selects a tab-bar radio button. Ghostty's AXTabButton exposes only
+    /// AXPress/AXShowMenu (AXSelected and AXValue are NOT settable — the
+    /// failed set is skipped entirely), so press, then verify the flip.
+    /// Returns true when the tab reads back as selected.
+    @discardableResult
+    private func select(_ tab: AXUIElement) -> Bool {
+        if isSelected(tab) { return true }
+        AXUIElementPerformAction(tab, kAXPressAction as CFString)
+        usleep(150_000) // Ghostty needs a beat before the value updates.
+        if isSelected(tab) { return true }
+        // Fallback for other terminals whose tab buttons honor AXSelected.
+        if AXUIElementSetAttributeValue(tab, "AXSelected" as CFString, kCFBooleanTrue) == .success {
+            usleep(100_000)
+            return isSelected(tab)
+        }
+        return false
+    }
+
+    private func isSelected(_ tab: AXUIElement) -> Bool {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(tab, kAXValueAttribute as CFString, &value) == .success else { return false }
+        return (value as? NSNumber)?.boolValue == true
+    }
+
+    /// After a tab is selected, raise the window that shows it. Ghostty's
+    /// native tabs are per-tab AXWindows whose title equals the tab title;
+    /// re-fetch because window order/titles shift after selection.
+    private func raiseWindow(for token: String, tabTitle: String,
+                             tabGroupOwner: AXUIElement, of app: NSRunningApplication) {
+        if let fresh = axWindows(of: app) {
+            // Exact tab-title match beats a fuzzy token match (dupe titles).
+            if let window = fresh.first(where: { axTitle(of: $0) == tabTitle })
+                ?? fresh.first(where: {
+                    axTitle(of: $0)?.localizedCaseInsensitiveContains(token) == true
+                }) {
+                raise(window, of: app)
+                return
+            }
+        }
+        // Fallback: raise the window that owns the tab bar.
+        var value: CFTypeRef?
+        if AXUIElementCopyAttributeValue(tabGroupOwner, kAXWindowAttribute as CFString, &value) == .success,
+           let ownerWindow = value {
+            AXUIElementPerformAction(ownerWindow as! AXUIElement, "AXRaise" as CFString)
+        }
+        app.activate(options: [.activateAllWindows])
+    }
+
     private func raise(_ window: AXUIElement, of app: NSRunningApplication) {
         AXUIElementPerformAction(window, "AXRaise" as CFString)
         app.activate(options: [.activateAllWindows])
     }
 
-    /// Finds the window's AXTabGroup (native macOS window tabs) and selects
-    /// the tab radio button whose title contains `token`.
-    @discardableResult
-    private func selectMatchingTab(in window: AXUIElement, token: String) -> Bool {
-        guard let tabGroup = findTabGroup(under: window) else { return false }
-        for tab in axChildren(of: tabGroup) {
-            guard axRole(of: tab) == "AXRadioButton" else { continue }
-            guard let title = axTitle(of: tab),
-                  title.localizedCaseInsensitiveContains(token) else { continue }
-            if AXUIElementSetAttributeValue(tab, "AXSelected" as CFString, kCFBooleanTrue) == .success {
-                return true
-            }
-            if AXUIElementPerformAction(tab, kAXPressAction as CFString) == .success {
-                return true
-            }
+    private func axWindows(of app: NSRunningApplication) -> [AXUIElement]? {
+        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &value) == .success else {
+            return nil
         }
-        return false
+        return value as? [AXUIElement]
+    }
+
+    /// Ghostty exposes its single AXTabGroup under just ONE of its windows,
+    /// so search every window rather than only the title-matching one.
+    private func findTabGroup(underAnyOf windows: [AXUIElement]) -> AXUIElement? {
+        for window in windows {
+            if let found = findTabGroup(under: window) { return found }
+        }
+        return nil
     }
 
     private func findTabGroup(under element: AXUIElement, depth: Int = 0) -> AXUIElement? {

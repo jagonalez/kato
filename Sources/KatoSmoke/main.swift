@@ -52,6 +52,31 @@ check(target?.appBundleID == "com.mitchellh.ghostty", "resolver targets Ghostty"
 check(target?.windowTitleToken == "kato", "resolver token = cwd basename", "token=\(target?.windowTitleToken ?? "nil")")
 check(TerminalTitleResolver.focusTarget(cwd: nil, tty: nil, pid: nil) == nil, "resolver returns nil without cwd")
 
+// tmux/tty pass-through (empty strings normalize to nil).
+let tmuxTarget = TerminalTitleResolver.focusTarget(cwd: "/tmp/x", tty: "ttys021", pid: nil, tmux: "work:2.1")
+check(tmuxTarget?.tmuxTarget == "work:2.1", "resolver carries tmux target")
+check(tmuxTarget?.tty == "ttys021", "resolver carries tty")
+let emptyTmux = TerminalTitleResolver.focusTarget(cwd: "/tmp/x", tty: "", pid: nil, tmux: "")
+check(emptyTmux?.tmuxTarget == nil && emptyTmux?.tty == nil, "empty tmux/tty normalize to nil")
+
+// MARK: - TmuxResolver (pure parsing; no tmux server needed)
+
+let listPanes = """
+ttys020 work:0.0
+ttys021 work:1.0
+/dev/ttys099 other:3.2
+"""
+check(TmuxResolver.target(forTTY: "ttys021", inListPanesOutput: listPanes) == "work:1.0",
+      "tmux resolver maps tty to session:window.pane")
+check(TmuxResolver.target(forTTY: "/dev/ttys021", inListPanesOutput: listPanes) == "work:1.0",
+      "tmux resolver tolerates /dev/ prefix on query")
+check(TmuxResolver.target(forTTY: "ttys099", inListPanesOutput: listPanes) == "other:3.2",
+      "tmux resolver tolerates /dev/ prefix in list-panes output")
+check(TmuxResolver.target(forTTY: "ttys777", inListPanesOutput: listPanes) == nil,
+      "tmux resolver returns nil for unknown tty")
+check(TmuxResolver.target(forTTY: "", inListPanesOutput: listPanes) == nil,
+      "tmux resolver returns nil for empty tty")
+
 // MARK: - GitHubMonitor: one row per PR, updated in place
 
 let prURL = "https://github.com/helm/pull/pull/7"
@@ -197,7 +222,7 @@ if let (data, response) = try? await URLSession.shared.data(
 var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/event")!)
 request.httpMethod = "POST"
 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-request.httpBody = Data(#"{"kind":"needsInput","title":"claude · kato","detail":"Waiting for confirmation","cwd":"/Users/jeremy/dev/kato","pid":4242}"#.utf8)
+request.httpBody = Data(#"{"kind":"needsInput","title":"claude · kato","detail":"Waiting for confirmation","cwd":"/Users/jeremy/dev/kato","pid":4242,"tty":"ttys021","tmux":"work:2.1"}"#.utf8)
 if let (_, response) = try? await URLSession.shared.data(for: request) {
     check((response as? HTTPURLResponse)?.statusCode == 200, "POST /event → 200")
 } else {
@@ -214,6 +239,10 @@ if let received = box.event {
     check(received.detail == "Waiting for confirmation", "event detail decoded")
     check(received.focus?.windowTitleToken == "kato", "focus target built from cwd")
     check(received.focus?.processPID == 4242, "focus target carries pid")
+    check(received.focus?.tmuxTarget == "work:2.1", "focus target carries tmux target",
+          received.focus?.tmuxTarget ?? "nil")
+    check(received.focus?.tty == "ttys021", "focus target carries tty",
+          received.focus?.tty ?? "nil")
 }
 
 // Unknown path → 404

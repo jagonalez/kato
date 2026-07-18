@@ -10,11 +10,18 @@ public struct FocusTarget: Codable, Sendable, Equatable {
     /// Optional pid of the originating CLI process (informational; the app
     /// itself is located via its bundle id).
     public var processPID: Int32?
+    /// Optional tmux "session:window.pane" target captured by the hook.
+    public var tmuxTarget: String?
+    /// Optional TTY of the originating process (tmux resolution fallback).
+    public var tty: String?
 
-    public init(appBundleID: String, windowTitleToken: String, processPID: Int32? = nil) {
+    public init(appBundleID: String, windowTitleToken: String, processPID: Int32? = nil,
+                tmuxTarget: String? = nil, tty: String? = nil) {
         self.appBundleID = appBundleID
         self.windowTitleToken = windowTitleToken
         self.processPID = processPID
+        self.tmuxTarget = tmuxTarget
+        self.tty = tty
     }
 }
 

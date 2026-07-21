@@ -39,6 +39,15 @@ public actor EventBus {
         publish()
     }
 
+    /// Removes events by id (per-row dismiss and group dismiss from the UI).
+    public func remove(ids: some Sequence<UUID>) {
+        let doomed = Set(ids)
+        guard !doomed.isEmpty else { return }
+        events.removeAll { doomed.contains($0.id) }
+        persist()
+        publish()
+    }
+
     public func clear() {
         events.removeAll()
         persist()

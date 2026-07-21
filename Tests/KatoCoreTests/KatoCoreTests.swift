@@ -115,6 +115,85 @@ final class GitHubMonitorCollapseTests: XCTestCase {
     }
 }
 
+final class FocusMatchScoreTests: XCTestCase {
+    func testRanking() {
+        XCTAssertEqual(FocusController.matchScore(title: "kato", token: "kato"), 4)
+        XCTAssertEqual(FocusController.matchScore(title: "Kato", token: "kato"), 3)
+        XCTAssertEqual(FocusController.matchScore(title: "kato — claude", token: "kato"), 2)
+        XCTAssertEqual(FocusController.matchScore(title: "work · kato", token: "kato"), 1)
+        XCTAssertEqual(FocusController.matchScore(title: "other", token: "kato"), 0)
+        XCTAssertGreaterThan(FocusController.matchScore(title: "kato", token: "kato"),
+                             FocusController.matchScore(title: "kato-fork", token: "kato"))
+    }
+}
+
+final class EventGroupingTests: XCTestCase {
+    private func event(_ title: String, _ detail: String, _ t: TimeInterval, _ key: String) -> KatoEvent {
+        KatoEvent(kind: .prComment, title: title, detail: detail,
+                  createdAt: Date(timeIntervalSince1970: t), dedupeKey: key)
+    }
+
+    func testGroupsByTitleNewestFirst() {
+        let groups = EventGrouping.group([
+            event("github · o/r", "CI failed", 300, "a"),
+            event("claude · kato", "done", 200, "b"),
+            event("github · o/r", "alice commented", 100, "c"),
+        ])
+        XCTAssertEqual(groups.count, 2)
+        XCTAssertEqual(groups.first?.key, "github · o/r")
+        XCTAssertEqual(groups.first?.events.count, 2)
+        XCTAssertEqual(groups.first?.representative.detail, "CI failed")
+    }
+}
+
+final class EventBusRemoveTests: XCTestCase {
+    func testRemoveByIDs() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kato-test-\(UUID().uuidString)", isDirectory: true)
+        let bus = EventBus(store: EventStore(directory: dir))
+        let a = KatoEvent(kind: .prComment, title: "github · o/r", dedupeKey: "a")
+        let b = KatoEvent(kind: .agentDone, title: "claude · kato", dedupeKey: "b")
+        await bus.ingest(a)
+        await bus.ingest(b)
+        await bus.remove(ids: [a.id])
+        var snapshot = await bus.snapshot()
+        XCTAssertEqual(snapshot.map(\.id), [b.id])
+        await bus.remove(ids: [b.id])
+        snapshot = await bus.snapshot()
+        XCTAssertTrue(snapshot.isEmpty)
+        XCTAssertEqual(await EventStore(directory: dir).load().count, 0)
+    }
+}
+
+final class BrowserOpenerTests: XCTestCase {
+    func testComparisonKey() {
+        let url = URL(string: "HTTPS://GitHub.COM/helm/pull/pull/7/?notification_referrer_id=1#diff")!
+        XCTAssertEqual(BrowserOpener.comparisonKey(for: url),
+                       "https://github.com/helm/pull/pull/7")
+        XCTAssertEqual(BrowserOpener.comparisonKey(for: URL(string: "https://github.com")!),
+                       "https://github.com")
+    }
+}
+
+final class TabMarkerTests: XCTestCase {
+    func testNeedleAndTitle() {
+        XCTAssertEqual(TabMarker.needle(tty: "ttys021"), " ⌁ttys021")
+        XCTAssertEqual(TabMarker.needle(tty: "/dev/ttys021"), " ⌁ttys021")
+        XCTAssertEqual(TabMarker.stampedTitle(token: "kato", tty: "ttys021"), "● kato ⌁ttys021")
+        XCTAssertEqual(TabMarker.normalize(tty: " /dev/ttys099 "), "ttys099")
+        XCTAssertTrue(TabMarker.stampedTitle(token: "kato", tty: "ttys021")
+            .contains(TabMarker.needle(tty: "ttys021")))
+        XCTAssertFalse(TabMarker.stampedTitle(token: "kato", tty: "ttys021")
+            .contains(TabMarker.needle(tty: "ttys210")))
+    }
+
+    func testOwnershipGuards() {
+        XCTAssertFalse(TabMarker.verifyOwnership(pid: 99999999, tty: "ttys021"))
+        XCTAssertFalse(TabMarker.verifyOwnership(pid: 1, tty: ""))
+        XCTAssertFalse(TabMarker.verifyOwnership(pid: 1, tty: "ttys021"))
+    }
+}
+
 final class EventBusTests: XCTestCase {
     func testDedupeUpdateInPlace() async throws {
         let dir = FileManager.default.temporaryDirectory

@@ -68,6 +68,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <true/>
     <key>NSAccessibilityUsageDescription</key>
     <string>Kato uses Accessibility APIs to raise the terminal window/tab that needs your attention.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Kato reuses an already-open browser tab when you open a GitHub/Slack link.</string>
 </dict>
 </plist>
 PLIST

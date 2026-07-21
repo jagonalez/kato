@@ -14,14 +14,36 @@ public struct FocusTarget: Codable, Sendable, Equatable {
     public var tmuxTarget: String?
     /// Optional TTY of the originating process (tmux resolution fallback).
     public var tty: String?
+    /// Optional cmux workspace + surface ids (CMUX_WORKSPACE_ID /
+    /// CMUX_SURFACE_ID), captured by the hook when the agent runs inside
+    /// cmux — enables deterministic focus via cmux's socket API.
+    public var cmuxWorkspace: String?
+    public var cmuxSurface: String?
+    /// Optional herdr socket path + workspace/tab/pane ids (HERDR_SOCKET_PATH /
+    /// HERDR_WORKSPACE_ID / HERDR_TAB_ID / HERDR_PANE_ID), captured by the hook
+    /// when the agent runs inside herdr — enables deterministic pane focus via
+    /// herdr's socket API (the outer terminal window is raised separately).
+    public var herdrSocket: String?
+    public var herdrWorkspace: String?
+    public var herdrTab: String?
+    public var herdrPane: String?
 
     public init(appBundleID: String, windowTitleToken: String, processPID: Int32? = nil,
-                tmuxTarget: String? = nil, tty: String? = nil) {
+                tmuxTarget: String? = nil, tty: String? = nil,
+                cmuxWorkspace: String? = nil, cmuxSurface: String? = nil,
+                herdrSocket: String? = nil, herdrWorkspace: String? = nil,
+                herdrTab: String? = nil, herdrPane: String? = nil) {
         self.appBundleID = appBundleID
         self.windowTitleToken = windowTitleToken
         self.processPID = processPID
         self.tmuxTarget = tmuxTarget
         self.tty = tty
+        self.cmuxWorkspace = cmuxWorkspace
+        self.cmuxSurface = cmuxSurface
+        self.herdrSocket = herdrSocket
+        self.herdrWorkspace = herdrWorkspace
+        self.herdrTab = herdrTab
+        self.herdrPane = herdrPane
     }
 }
 

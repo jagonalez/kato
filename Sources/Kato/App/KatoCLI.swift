@@ -62,7 +62,7 @@ enum KatoCLI {
         let options = parseOptions(args)
         guard let kind = options["kind"], let title = options["title"] else {
             FileHandle.standardError.write(Data("""
-            usage: kato hook --kind <kind> --title <title> [--detail <text>] [--cwd <path>] [--tty <tty>] [--pid <pid>] [--url <url>] [--tmux <session:window.pane>]
+            usage: kato hook --kind <kind> --title <title> [--detail <text>] [--cwd <path>] [--tty <tty>] [--pid <pid>] [--url <url>] [--tmux <session:window.pane>] [--cmux-workspace <id>] [--cmux-surface <id>] [--herdr-socket <path>] [--herdr-workspace <id>] [--herdr-tab <id>] [--herdr-pane <id>]
 
             """.utf8))
             return 2
@@ -75,7 +75,13 @@ enum KatoCLI {
             cwd: options["cwd"] ?? FileManager.default.currentDirectoryPath,
             pid: options["pid"].flatMap(Int32.init),
             url: options["url"],
-            tmux: options["tmux"]
+            tmux: options["tmux"],
+            cmuxWorkspace: options["cmux-workspace"],
+            cmuxSurface: options["cmux-surface"],
+            herdrSocket: options["herdr-socket"],
+            herdrWorkspace: options["herdr-workspace"],
+            herdrTab: options["herdr-tab"],
+            herdrPane: options["herdr-pane"]
         )
         var request = URLRequest(url: URL(string: "http://127.0.0.1:\(HookServer.defaultPort)/event")!)
         request.httpMethod = "POST"
@@ -102,7 +108,7 @@ enum KatoCLI {
 
     private static func runFocusTest(_ args: [String]) -> Int32 {
         guard let token = args.first(where: { !$0.hasPrefix("--") }) else {
-            FileHandle.standardError.write(Data("usage: kato focus-test <window-title-token> [--tmux <session:window.pane>] [--tty <tty>]\n".utf8))
+            FileHandle.standardError.write(Data("usage: kato focus-test <window-title-token> [--tmux <session:window.pane>] [--tty <tty>] [--cmux-workspace <id>] [--cmux-surface <id>] [--herdr-socket <path>] [--herdr-workspace <id>] [--herdr-tab <id>] [--herdr-pane <id>]\n".utf8))
             return 2
         }
         let options = parseOptions(args)
@@ -110,11 +116,19 @@ enum KatoCLI {
             print("Accessibility permission not granted yet — requesting (grant it, then re-run)…")
             FocusController.requestAccessibilityPermission()
         }
+        let cmuxSurface = options["cmux-surface"].flatMap { $0.isEmpty ? nil : $0 }
         let target = FocusTarget(
-            appBundleID: TerminalTitleResolver.ghosttyBundleID,
+            appBundleID: cmuxSurface != nil
+                ? TerminalTitleResolver.cmuxBundleID : TerminalTitleResolver.ghosttyBundleID,
             windowTitleToken: token,
             tmuxTarget: options["tmux"],
-            tty: options["tty"]
+            tty: options["tty"],
+            cmuxWorkspace: options["cmux-workspace"],
+            cmuxSurface: cmuxSurface,
+            herdrSocket: options["herdr-socket"],
+            herdrWorkspace: options["herdr-workspace"],
+            herdrTab: options["herdr-tab"],
+            herdrPane: options["herdr-pane"]
         )
         switch FocusController().focus(target) {
         case .success:

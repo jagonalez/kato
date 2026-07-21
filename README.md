@@ -73,9 +73,14 @@ notify = ["/Users/jeremy/dev/kato/Scripts/hooks/codex-notify.sh"]
 Clicking a local agent event raises the matching Ghostty window/tab via the
 Accessibility API. On first use macOS will prompt for Accessibility
 permission (System Settings → Privacy & Security → Accessibility) — or use
-the "Request Accessibility Permission…" menu item. Window/tab matching works
-best when the tab title contains the project directory name (Claude Code
-sets this automatically).
+the "Request Accessibility Permission…" menu item.
+
+Tab identification does NOT rely on titles (Claude Code rewrites them live;
+users rename tabs). Inside tmux the pane is selected server-side; otherwise
+kato stamps the tab through the event's TTY (`OSC 2` → `/dev/ttysNNN`,
+verified against the agent's pid so recycled pty numbers can't misfire),
+finds the unique marker in the AX tab bar, then restores the title. Ranked
+title matching remains as the fallback for events without a TTY.
 
 ## Module status
 
@@ -83,7 +88,7 @@ sets this automatically).
 |---|---|
 | `KatoCore/Events` — KatoEvent, EventBus (actor, dedupe by `dedupeKey`), EventStore (JSON in `~/Library/Application Support/Kato`) | ✅ working, verified via `KatoSmoke` harness + XCTest suite (Xcode required for the latter) |
 | `KatoCore/Hooks` — HookServer on `127.0.0.1:7811` (`POST /event`, `GET /health`, Network.framework) | ✅ working, verified via `KatoSmoke` + live `kato serve` / `kato hook` round-trip |
-| `KatoCore/Focus` — FocusController (AX window/tab matching, AXRaise, activate; permission helpers) | ✅ compiles; verified manually via `kato focus-test` |
+| `KatoCore/Focus` — FocusController (TTY tab-stamp + tmux resolver + ranked AX fallback; permission helpers) | ✅ working, verified via `kato focus-test` / `ax-dump` |
 | `KatoCore/Monitors` — Monitor protocol + GitHubMonitor (`gh` polling, 30 s, persisted watermark) | ✅ working; SlackMonitor is a stub (phase 6) |
 | `KatoCore/Peers` — PeerSync | 🚧 stub (phase 5, see ARCHITECTURE.md §Peer-to-peer) |
 | `Kato` app — menu-bar agent, floating NSPanel (orb ↔ event list), shared EventListView | ✅ working |

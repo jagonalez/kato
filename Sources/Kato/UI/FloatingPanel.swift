@@ -46,6 +46,12 @@ final class FloatingPanelController: ObservableObject {
         layout(animated: true)
     }
 
+    /// Closes the panel (menu-bar-only mode). The controller is discarded
+    /// by the caller; a fresh one is created when the mascot is re-shown.
+    func close() {
+        panel.close()
+    }
+
     private func layout(animated: Bool) {
         let size = expanded ? expandedSize : collapsedSize
         // The panel has exactly two fixed sizes. Clamp min == max so greedy
@@ -87,7 +93,7 @@ struct FloatingPanelView: View {
                 // TCC changes don't notify; re-check whenever the panel shows.
                 .onAppear { appState.refreshAccessibilityStatus() }
         } else {
-            OrbView(count: appState.events.count,
+            OrbView(count: appState.groups.count,
                     imageName: appState.mascotImageName,
                     state: appState.mascotState)
                 .onTapGesture {
@@ -105,9 +111,10 @@ struct FloatingPanelView: View {
             }
             header
             Divider()
-            EventListView(events: appState.events) { event in
-                appState.select(event)
-            }
+            EventListView(groups: appState.groups,
+                          onSelect: { appState.select($0) },
+                          onDelete: { appState.delete($0) },
+                          onDeleteGroup: { appState.delete($0) })
         }
         // Pin content to the very top of the panel.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

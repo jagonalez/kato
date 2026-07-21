@@ -9,7 +9,9 @@ struct KatoApp: App {
     @StateObject private var appState: AppState
 
     init() {
-        let state = AppState()
+        // App struct init runs on the main thread at launch; AppState is
+        // @MainActor (its init reads the persisted mascotHidden preference).
+        let state = MainActor.assumeIsolated { AppState() }
         _appState = StateObject(wrappedValue: state)
         // Start the hook server, monitors and bus subscription at launch.
         Task { @MainActor in state.start() }
@@ -22,8 +24,8 @@ struct KatoApp: App {
         } label: {
             HStack(spacing: 2) {
                 Image(systemName: "bolt.horizontal.circle")
-                if !appState.events.isEmpty {
-                    Text("\(appState.events.count)")
+                if !appState.groups.isEmpty {
+                    Text("\(appState.groups.count)")
                 }
             }
         }
@@ -39,6 +41,16 @@ final class AppState: ObservableObject {
     @Published private(set) var mascotState: MascotState = .idle
     /// Effective artwork the orb should render (idle variants included).
     @Published private(set) var mascotImageName: String = MascotIdleRotation.variants[0]
+    /// Menu-bar-only mode: the floating mascot orb/panel stays hidden.
+    /// Persisted so the panel never appears across launches.
+    @Published var mascotHidden: Bool {
+        didSet { UserDefaults.standard.set(mascotHidden, forKey: Self.mascotHiddenDefaultsKey) }
+    }
+    nonisolated static let mascotHiddenDefaultsKey = "kato.mascotHidden"
+
+    /// Events collapsed by title for display (one row per "github · o/r" /
+    /// "claude · project"), newest event as each group's representative.
+    var groups: [EventGroup] { EventGrouping.group(events) }
 
     let bus = EventBus()
     private var hookServer: HookServer?
@@ -51,7 +63,10 @@ final class AppState: ObservableObject {
     private var idleRotation = MascotIdleRotation()
     private var didStart = false
 
-    nonisolated init() {}
+    init() {
+        _mascotHidden = Published(
+            initialValue: UserDefaults.standard.bool(forKey: AppState.mascotHiddenDefaultsKey))
+    }
 
     func start() {
         guard !didStart else { return }
@@ -75,6 +90,13 @@ final class AppState: ObservableObject {
             Task { await bus.ingest(event) }
         }
         monitors.append(github)
+
+        // 2b. Slack monitor (Socket Mode; no-op without an app token).
+        let slack = SlackMonitor()
+        slack.start { event in
+            Task { await bus.ingest(event) }
+        }
+        monitors.append(slack)
 
         // 3. UI subscription.
         streamTask = Task { [weak self] in
@@ -110,13 +132,28 @@ final class AppState: ObservableObject {
         }
 
         // 5. Show the floating orb immediately — the mascot is the app's
-        //    primary face, so it's visible without a menu click.
-        showPanel()
+        //    primary face, so it's visible without a menu click (unless the
+        //    user chose menu-bar-only mode).
+        if !mascotHidden {
+            showPanel()
+        }
     }
 
     func showPanel() {
         if panelController == nil {
             panelController = FloatingPanelController(appState: self)
+        }
+    }
+
+    /// Menu-bar-only mode on/off. Hiding closes the panel; showing brings
+    /// the orb back.
+    func setMascotHidden(_ hidden: Bool) {
+        mascotHidden = hidden
+        if hidden {
+            panelController?.close()
+            panelController = nil
+        } else {
+            showPanel()
         }
     }
 
@@ -145,6 +182,10 @@ final class AppState: ObservableObject {
 
     func togglePanel() {
         refreshAccessibilityStatus()
+        if mascotHidden {
+            setMascotHidden(false)
+            return
+        }
         if panelController == nil {
             panelController = FloatingPanelController(appState: self)
         }
@@ -152,9 +193,17 @@ final class AppState: ObservableObject {
     }
 
     /// Event row click → focus the terminal window/tab if we know how,
-    /// otherwise open the web deep link.
+    /// otherwise open the web deep link (reusing an existing browser tab).
     func select(_ event: KatoEvent) {
-        if let focus = event.focus {
+        if var focus = event.focus {
+            // Recycled-TTY guard: Darwin hands out the lowest free pty
+            // number, so a stale event's TTY may now belong to an unrelated
+            // tab. Keep the deterministic marker path only when the
+            // originating process still owns the TTY — or, for events
+            // without a pid, when the event is fresh.
+            if let tty = focus.tty, !tty.isEmpty, !Self.ttyStampingSafe(for: event) {
+                focus.tty = nil
+            }
             switch FocusController().focus(focus) {
             case .success:
                 lastFocusError = nil
@@ -166,12 +215,33 @@ final class AppState: ObservableObject {
                     // Surface an actionable alert instead of failing silently.
                     AccessibilityPermission.presentAlert()
                 } else if let url = event.url {
-                    NSWorkspace.shared.open(url)
+                    BrowserOpener.open(url)
                 }
             }
         } else if let url = event.url {
-            NSWorkspace.shared.open(url)
+            BrowserOpener.open(url)
         }
+    }
+
+    /// Is the TTY-stamping focus path safe for this event? With a pid we
+    /// verify the process still owns the TTY; without one we trust only
+    /// fresh events (pty numbers get recycled over time).
+    private static func ttyStampingSafe(for event: KatoEvent) -> Bool {
+        guard let focus = event.focus, let tty = focus.tty, !tty.isEmpty else { return false }
+        if let pid = focus.processPID {
+            return TabMarker.verifyOwnership(pid: pid, tty: tty)
+        }
+        return Date().timeIntervalSince(event.createdAt) < 30 * 60
+    }
+
+    /// Dismiss a single event (per-row × button).
+    func delete(_ event: KatoEvent) {
+        Task { await bus.remove(ids: [event.id]) }
+    }
+
+    /// Dismiss a whole group (group-header × button).
+    func delete(_ group: EventGroup) {
+        Task { await bus.remove(ids: group.events.map(\.id)) }
     }
 
     func clear() {

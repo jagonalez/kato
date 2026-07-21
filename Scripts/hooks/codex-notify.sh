@@ -62,6 +62,7 @@ fi
 if command -v python3 >/dev/null 2>&1; then
     PAYLOAD="$(KATO_KIND="$KIND" KATO_TITLE="$TITLE" KATO_DETAIL="$DETAIL" \
                KATO_CWD="$PWD" KATO_TTY="$TTY_NAME" KATO_TMUX="$TMUX_TARGET" \
+               KATO_PID="${PPID:-}" \
                python3 -c '
 import json, os
 payload = {
@@ -74,6 +75,15 @@ if os.environ.get("KATO_TTY"):
     payload["tty"] = os.environ["KATO_TTY"]
 if os.environ.get("KATO_TMUX"):
     payload["tmux"] = os.environ["KATO_TMUX"]
+if os.environ.get("KATO_PID"):
+    payload["pid"] = int(os.environ["KATO_PID"])
+# cmux / herdr auto-set these inside their terminals; forwarding them gives
+# kato deterministic focus via each app's socket API (no accessibility hacks).
+for key, env in (("cmuxWorkspace", "CMUX_WORKSPACE_ID"), ("cmuxSurface", "CMUX_SURFACE_ID"),
+                 ("herdrSocket", "HERDR_SOCKET_PATH"), ("herdrWorkspace", "HERDR_WORKSPACE_ID"),
+                 ("herdrTab", "HERDR_TAB_ID"), ("herdrPane", "HERDR_PANE_ID")):
+    if os.environ.get(env):
+        payload[key] = os.environ[env]
 print(json.dumps(payload))
 ' 2>/dev/null)"
 else

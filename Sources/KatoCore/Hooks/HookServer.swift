@@ -18,6 +18,18 @@ public final class HookServer: @unchecked Sendable {
         /// tmux "session:window.pane" of the originating process, when the
         /// agent runs inside tmux (enables deterministic focus).
         public var tmux: String?
+        /// cmux workspace + surface ids (CMUX_WORKSPACE_ID / CMUX_SURFACE_ID),
+        /// when the agent runs inside cmux (enables deterministic focus via
+        /// cmux's socket API — no AX).
+        public var cmuxWorkspace: String?
+        public var cmuxSurface: String?
+        /// herdr socket path + workspace/tab/pane ids (HERDR_SOCKET_PATH /
+        /// HERDR_WORKSPACE_ID / HERDR_TAB_ID / HERDR_PANE_ID), when the agent
+        /// runs inside herdr (deterministic server-side pane focus).
+        public var herdrSocket: String?
+        public var herdrWorkspace: String?
+        public var herdrTab: String?
+        public var herdrPane: String?
 
         public init(
             kind: String,
@@ -27,7 +39,13 @@ public final class HookServer: @unchecked Sendable {
             cwd: String? = nil,
             pid: Int32? = nil,
             url: String? = nil,
-            tmux: String? = nil
+            tmux: String? = nil,
+            cmuxWorkspace: String? = nil,
+            cmuxSurface: String? = nil,
+            herdrSocket: String? = nil,
+            herdrWorkspace: String? = nil,
+            herdrTab: String? = nil,
+            herdrPane: String? = nil
         ) {
             self.kind = kind
             self.title = title
@@ -37,6 +55,12 @@ public final class HookServer: @unchecked Sendable {
             self.pid = pid
             self.url = url
             self.tmux = tmux
+            self.cmuxWorkspace = cmuxWorkspace
+            self.cmuxSurface = cmuxSurface
+            self.herdrSocket = herdrSocket
+            self.herdrWorkspace = herdrWorkspace
+            self.herdrTab = herdrTab
+            self.herdrPane = herdrPane
         }
     }
 
@@ -160,7 +184,13 @@ public final class HookServer: @unchecked Sendable {
             kind = KatoEvent.Kind(rawValue: payload.kind) ?? .agentDone
         }
         let focus = TerminalTitleResolver.focusTarget(cwd: payload.cwd, tty: payload.tty,
-                                                      pid: payload.pid, tmux: payload.tmux)
+                                                       pid: payload.pid, tmux: payload.tmux,
+                                                       cmuxWorkspace: payload.cmuxWorkspace,
+                                                       cmuxSurface: payload.cmuxSurface,
+                                                       herdrSocket: payload.herdrSocket,
+                                                       herdrWorkspace: payload.herdrWorkspace,
+                                                       herdrTab: payload.herdrTab,
+                                                       herdrPane: payload.herdrPane)
         let url = payload.url.flatMap { URL(string: $0) }
         let identity = payload.tty ?? payload.pid.map(String.init) ?? payload.title
         return KatoEvent(

@@ -13,13 +13,16 @@ struct MenuContentView: View {
                 }
                 Divider()
             }
-            let recent = Array(appState.events.prefix(5))
+            let recent = Array(appState.groups.prefix(5))
             if recent.isEmpty {
                 Text("No events")
             } else {
-                ForEach(recent) { event in
-                    Button(event.title) {
-                        appState.select(event)
+                ForEach(recent) { group in
+                    let title = group.events.count > 1
+                        ? "\(group.representative.title) ×\(group.events.count)"
+                        : group.representative.title
+                    Button(title) {
+                        appState.select(group.representative)
                     }
                 }
             }
@@ -28,8 +31,13 @@ struct MenuContentView: View {
                 Text("⚠︎ \(error)")
             }
             Divider()
-            Button("Show / Hide Floating Panel") {
-                appState.togglePanel()
+            if !appState.mascotHidden {
+                Button("Show / Hide Floating Panel") {
+                    appState.togglePanel()
+                }
+            }
+            Button(appState.mascotHidden ? "Show Mascot" : "Hide Mascot (Menu Bar Only)") {
+                appState.setMascotHidden(!appState.mascotHidden)
             }
             Button("Clear Events") {
                 appState.clear()

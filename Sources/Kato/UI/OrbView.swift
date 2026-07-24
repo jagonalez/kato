@@ -10,6 +10,10 @@ struct OrbView: View {
     /// static fallback image.
     let imageName: String
     let state: MascotState
+    /// Increments on each fresh event — the mascot moves on every bump.
+    let tick: Int
+
+    @State private var hovered = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -26,13 +30,15 @@ struct OrbView: View {
         }
         .frame(width: 192, height: 192)
         .contentShape(Rectangle())
+        .onHover { hovered = $0 }
         .accessibilityLabel("Kato, \(count) events")
     }
 
     private var mascot: some View {
         Group {
             if Mascot3DView.isAvailable {
-                Mascot3DView(state: state, mood: MascotMood(imageName: imageName))
+                Mascot3DView(state: state, mood: MascotMood(imageName: imageName),
+                             hovered: hovered, activityTick: tick)
             } else if let image = AssetLoader.image(named: imageName) {
                 Image(nsImage: image)
                     .resizable()

@@ -134,6 +134,11 @@ Ghostty surface. Click on event → `FocusController`, in order:
 - Menu-bar agent (`LSUIElement` = true). Two faces:
   1. **Floating mode**: borderless `NSPanel`, `.nonactivatingPanel`, level `.floating`,
      `canJoinAllSpaces`; collapsed = orb with badge count, expanded = event list.
+     The orb is a live SceneKit chibi ninja (Kato via FFVI's Shadow: cowled
+     head, glowing eyes as the state beacon, hood point, sword on the back).
+     Hover → arm wave + gentle excitement boost; every fresh event bumps
+     `activityTick` → the eyes light up (glow flash + blink; soft pop in
+     alert, hop in success).
   2. **Popover mode**: classic menu-bar popover (fallback).
 - The mascot can be hidden entirely (**Hide Mascot** menu item, persisted via
   `kato.mascotHidden` in UserDefaults): the floating panel never appears and

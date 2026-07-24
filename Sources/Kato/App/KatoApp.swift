@@ -41,6 +41,9 @@ final class AppState: ObservableObject {
     @Published private(set) var mascotState: MascotState = .idle
     /// Effective artwork the orb should render (idle variants included).
     @Published private(set) var mascotImageName: String = MascotIdleRotation.variants[0]
+    /// Increments on each fresh event — the mascot moves on every bump,
+    /// even when its state didn't change (second alert in a row, …).
+    @Published private(set) var activityTick = 0
     /// Menu-bar-only mode: the floating mascot orb/panel stays hidden.
     /// Persisted so the panel never appears across launches.
     @Published var mascotHidden: Bool {
@@ -105,9 +108,16 @@ final class AppState: ObservableObject {
             for await snapshot in stream {
                 guard let self else { continue }
                 // Treat a new top event (or count change) as fresh activity
-                // for the mascot's success-decay window.
+                // for the mascot's success-decay window. The activity tick
+                // (per-event movement) only bumps when events ARRIVE — not
+                // on dismissals/clears (shrinking count) or in-place updates.
                 if snapshot.count != self.events.count || snapshot.first?.id != self.events.first?.id {
                     self.lastEventAt = Date()
+                    if snapshot.count > self.events.count
+                        || (snapshot.count == self.events.count
+                            && snapshot.first?.id != self.events.first?.id) {
+                        self.activityTick += 1
+                    }
                 }
                 self.events = snapshot
                 self.recomputeMascotState()

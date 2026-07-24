@@ -95,7 +95,8 @@ struct FloatingPanelView: View {
         } else {
             OrbView(count: appState.groups.count,
                     imageName: appState.mascotImageName,
-                    state: appState.mascotState)
+                    state: appState.mascotState,
+                    tick: appState.activityTick)
                 .onTapGesture {
                     controller.toggle()
                 }

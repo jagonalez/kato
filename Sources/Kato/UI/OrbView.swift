@@ -1,13 +1,11 @@
 import SwiftUI
 
-/// Collapsed face of the floating panel: the live 3D mascot with a badge
-/// count. Falls back to the static PNG artwork (and then the old gradient
-/// orb) if SceneKit is unavailable. State/mood changes animate inside the
-/// scene; the static path keeps the 0.3 s crossfade.
+/// Collapsed face of the floating panel: the animated 2D mascot sprite with
+/// a badge count. Falls back to the old gradient orb when the artwork is
+/// missing. State/mood changes swap the artwork with a 0.3 s crossfade.
 struct OrbView: View {
     let count: Int
-    /// Artwork name (e.g. "kato-idle-sleep") — drives the 3D mood and the
-    /// static fallback image.
+    /// Artwork name (e.g. "kato-idle-sleep") — drives the sprite.
     let imageName: String
     let state: MascotState
     /// Increments on each fresh event — the mascot moves on every bump.
@@ -18,7 +16,7 @@ struct OrbView: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             mascot
-                .frame(width: 168, height: 168)
+                .frame(width: 216, height: 216)
             if count > 0 {
                 Text("\(min(count, 99))")
                     .font(.headline.bold())
@@ -28,7 +26,7 @@ struct OrbView: View {
                     .offset(x: 10, y: -10)
             }
         }
-        .frame(width: 192, height: 192)
+        .frame(width: 240, height: 240)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .accessibilityLabel("Kato, \(count) events")
@@ -36,17 +34,9 @@ struct OrbView: View {
 
     private var mascot: some View {
         Group {
-            if Mascot3DView.isAvailable {
-                Mascot3DView(state: state, mood: MascotMood(imageName: imageName),
+            if AssetLoader.image(named: imageName) != nil {
+                Mascot2DView(imageName: imageName, state: state,
                              hovered: hovered, activityTick: tick)
-            } else if let image = AssetLoader.image(named: imageName) {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    // Crossfade (~0.3 s) when the static artwork swaps.
-                    .id(imageName)
-                    .transition(.opacity)
-                    .animation(.easeInOut(duration: 0.3), value: imageName)
             } else {
                 fallbackOrb
             }

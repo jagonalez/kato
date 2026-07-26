@@ -153,12 +153,12 @@ struct Mascot2DView: View {
         }
     }
 
-    /// Random-interval blink loop: eyes closed for ~120 ms every 2.5–6 s.
+    /// Random-interval blink loop: eyes closed for ~120 ms every 1.2–3 s.
     /// No-ops for poses without a `<pose>-blink.png` asset and while the
     /// sleep variant is showing (its eyes are already closed). Recursion is
     /// tied to the view's lifecycle via `displayedName` being non-empty.
     private func scheduleBlink() {
-        let delay = Double.random(in: 2.5...6.0)
+        let delay = Double.random(in: 1.2...3.0)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [self] in
             guard !displayedName.isEmpty else { return }
             guard !isSleeping,

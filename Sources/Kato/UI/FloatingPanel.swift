@@ -19,30 +19,99 @@ final class FloatingPanel: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false // enabled only while expanded (see layout())
-        isMovableByWindowBackground = true
         hidesOnDeactivate = false
+    }
+}
+
+/// Hosting view that tells a click on the collapsed orb apart from a drag.
+/// `isMovableByWindowBackground` fights SwiftUI tap gestures (the hosting
+/// view claims the mouse, so drags were being swallowed into "clicks"),
+/// so in collapsed mode the window is moved manually here and the tap
+/// only counts if the pointer barely moved.
+private final class PanelHostingView: NSHostingView<FloatingPanelView> {
+    var isExpanded: () -> Bool = { false }
+    var onOrbClick: () -> Void = {}
+    var onDragEnd: () -> Void = {}
+
+    private var downPoint: NSPoint?
+    private var dragged = false
+
+    override func mouseDown(with event: NSEvent) {
+        guard !isExpanded() else { super.mouseDown(with: event); return }
+        downPoint = event.locationInWindow
+        dragged = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard !isExpanded(), let down = downPoint, !dragged else {
+            super.mouseDragged(with: event)
+            return
+        }
+        let loc = event.locationInWindow
+        guard abs(loc.x - down.x) >= 4 || abs(loc.y - down.y) >= 4 else { return }
+        dragged = true
+        downPoint = nil
+        // Native drag: smooth, no coordinate feedback (manually offsetting
+        // the frame from window-relative deltas lags behind the cursor).
+        window?.performDrag(with: event)
+        onDragEnd()
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard !isExpanded() else { super.mouseUp(with: event); return }
+        if !dragged { onOrbClick() }
+        downPoint = nil
+        dragged = false
     }
 }
 
 @MainActor
 final class FloatingPanelController: ObservableObject {
     @Published private(set) var expanded = false
+    /// Settings pane replaces the event list while open.
+    @Published var showSettings = false
 
     private let panel: FloatingPanel
+    private weak var appState: AppState?
     private let collapsedSize = NSSize(width: 240, height: 240)
     private let expandedSize = NSSize(width: 420, height: 540)
+    /// Where the orb sat before expanding — collapsing restores it exactly.
+    private var collapsedOrigin: NSPoint?
+
+    nonisolated static let orbXDefaultsKey = "kato.orbX"
+    nonisolated static let orbYDefaultsKey = "kato.orbY"
+
+    /// Last dragged orb position, persisted across launches.
+    private static var savedOrbOrigin: NSPoint? {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: orbXDefaultsKey) != nil else { return nil }
+        return NSPoint(x: defaults.double(forKey: orbXDefaultsKey),
+                       y: defaults.double(forKey: orbYDefaultsKey))
+    }
 
     init(appState: AppState) {
+        self.appState = appState
         panel = FloatingPanel()
-        let hosting = NSHostingView(rootView: FloatingPanelView(appState: appState, controller: self))
+        let hosting = PanelHostingView(rootView: FloatingPanelView(appState: appState, controller: self))
+        hosting.isExpanded = { [weak self] in self?.expanded ?? false }
+        hosting.onOrbClick = { [weak self] in self?.toggle() }
+        hosting.onDragEnd = { [weak self] in self?.persistOrbPosition() }
         hosting.autoresizingMask = [.width, .height]
         panel.contentView = hosting
         layout(animated: false)
         panel.orderFrontRegardless()
     }
 
+    private func persistOrbPosition() {
+        guard !expanded else { return }
+        collapsedOrigin = panel.frame.origin
+        UserDefaults.standard.set(Double(panel.frame.origin.x), forKey: Self.orbXDefaultsKey)
+        UserDefaults.standard.set(Double(panel.frame.origin.y), forKey: Self.orbYDefaultsKey)
+    }
+
     func toggle() {
         expanded.toggle()
+        if expanded { appState?.markSeen() }
         layout(animated: true)
     }
 
@@ -61,22 +130,54 @@ final class FloatingPanelController: ObservableObject {
         // content left a dead band above the header.
         panel.contentMinSize = size
         panel.contentMaxSize = size
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
-            panel.setContentSize(size)
-            return
-        }
-        let margin: CGFloat = 16
         // Shadow only in expanded mode: on the transparent collapsed orb the
         // window shadow outlines the whole panel rect (a static gray ring,
         // very visible on light backgrounds). The expanded card is opaque,
         // so the shadow hugs it correctly there.
         panel.hasShadow = expanded
-        // Anchor top-right of the visible frame; resize downward from the same corner.
-        let origin = NSPoint(
-            x: screen.visibleFrame.maxX - size.width - margin,
-            y: screen.visibleFrame.maxY - size.height - margin
-        )
-        panel.setFrame(NSRect(origin: origin, size: size), display: true, animate: animated)
+        // Background-dragging only in expanded mode; the collapsed orb
+        // drags via PanelHostingView's click-vs-drag discrimination.
+        panel.isMovableByWindowBackground = expanded
+
+        let origin: NSPoint
+        if expanded {
+            // Remember the orb's exact spot so collapsing puts it back.
+            if !panel.frame.equalTo(.zero) { collapsedOrigin = panel.frame.origin }
+            // Expand where the mascot was: keep the top-right corner.
+            origin = NSPoint(x: panel.frame.maxX - size.width,
+                             y: panel.frame.maxY - size.height)
+        } else if let collapsedOrigin {
+            // Collapse back to where the mascot was dragged.
+            origin = collapsedOrigin
+        } else if !panel.frame.equalTo(.zero) {
+            origin = NSPoint(x: panel.frame.maxX - size.width,
+                             y: panel.frame.maxY - size.height)
+        } else if let saved = Self.savedOrbOrigin {
+            // First show after launch: restore the dragged position.
+            origin = saved
+        } else {
+            // Very first run: anchor top-right of the main screen.
+            guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+                panel.setContentSize(size)
+                return
+            }
+            let margin: CGFloat = 16
+            origin = NSPoint(x: screen.visibleFrame.maxX - size.width - margin,
+                             y: screen.visibleFrame.maxY - size.height - margin)
+        }
+
+        // Clamp onto the screen the panel lives on so it can never end up
+        // half off-screen (expanding near an edge, display disconnected
+        // since the position was saved, …).
+        var frame = NSRect(origin: origin, size: size)
+        if let screen = NSScreen.screens.first(where: { $0.frame.intersects(frame) })
+            ?? NSScreen.main ?? NSScreen.screens.first {
+            let vis = screen.visibleFrame.insetBy(dx: 8, dy: 8)
+            frame.origin.x = min(max(frame.origin.x, vis.minX), vis.maxX - size.width)
+            frame.origin.y = min(max(frame.origin.y, vis.minY), vis.maxY - size.height)
+        }
+        panel.setFrame(frame, display: true, animate: animated)
+        if !expanded { persistOrbPosition() }
     }
 }
 
@@ -93,13 +194,12 @@ struct FloatingPanelView: View {
                 // TCC changes don't notify; re-check whenever the panel shows.
                 .onAppear { appState.refreshAccessibilityStatus() }
         } else {
-            OrbView(count: appState.groups.count,
+            OrbView(count: appState.unreadCount,
                     imageName: appState.mascotImageName,
                     state: appState.mascotState,
                     tick: appState.activityTick)
-                .onTapGesture {
-                    controller.toggle()
-                }
+                // Clicks/drags are handled by PanelHostingView so a drag
+                // can never be misread as a tap.
                 .onAppear { appState.refreshAccessibilityStatus() }
         }
     }
@@ -112,10 +212,14 @@ struct FloatingPanelView: View {
             }
             header
             Divider()
-            EventListView(groups: appState.groups,
-                          onSelect: { appState.select($0) },
-                          onDelete: { appState.delete($0) },
-                          onDeleteGroup: { appState.delete($0) })
+            if controller.showSettings {
+                SettingsView(appState: appState)
+            } else {
+                EventListView(groups: appState.groups,
+                              onSelect: { appState.select($0) },
+                              onDelete: { appState.delete($0) },
+                              onDeleteGroup: { appState.delete($0) })
+            }
         }
         // Pin content to the very top of the panel.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -154,6 +258,13 @@ struct FloatingPanelView: View {
             Text("Kato")
                 .font(.title3.weight(.semibold))
             Spacer()
+            Button {
+                controller.showSettings.toggle()
+            } label: {
+                Image(systemName: controller.showSettings ? "gearshape.fill" : "gearshape")
+            }
+            .buttonStyle(.borderless)
+            .help("Settings")
             Button {
                 appState.clear()
             } label: {

@@ -48,6 +48,16 @@ public actor EventBus {
         publish()
     }
 
+    /// Removes events by dedupeKey (monitors retracting a condition that
+    /// cleared, e.g. a Slack DM read again after being marked unread).
+    public func remove(dedupeKeys: some Sequence<String>) {
+        let doomed = Set(dedupeKeys)
+        guard !doomed.isEmpty else { return }
+        events.removeAll { doomed.contains($0.dedupeKey) }
+        persist()
+        publish()
+    }
+
     public func clear() {
         events.removeAll()
         persist()

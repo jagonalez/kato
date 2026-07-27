@@ -1,0 +1,27 @@
+# Kato Slack app manifest — paste into api.slack.com/apps → Create New App →
+# "From a manifest". After creating, just install it (Settings → Install
+# App) and copy the "User OAuth Token" (`xoxp-…`) from OAuth & Permissions
+# into Kato's settings pane (gear in the panel). No bot, no Socket Mode,
+# no app-level token: Kato polls as YOU with the user token — DMs, `<@you>`
+# mentions in every channel you're a member of, and mark-as-unread reminders.
+#
+# Workspace enforces token rotation (12 h expiry)? Kato auto-renews via
+# oauth.v2.exchange — also paste the client ID, client secret and refresh
+# token in the settings pane. See README.md §"Connecting Slack".
+display_information:
+  name: Kato
+  description: Personal-assistant notifications for the Kato menu-bar app
+  background_color: "#5b54e8"
+oauth_config:
+  scopes:
+    user:
+      - im:read             # list your DMs; unread counts (mark-as-unread reminders)
+      - im:history          # read your DM messages
+      - users:read          # display names in event titles
+      # mention catch-up poll across every channel you're a member of;
+      # granular search scopes — newer apps don't get the blanket search:read
+      - search:read.public
+      - search:read.private
+      - search:read.mpim
+settings:
+  org_deploy_enabled: false

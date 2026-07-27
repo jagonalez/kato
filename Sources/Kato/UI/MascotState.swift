@@ -17,12 +17,13 @@ enum MascotState: String, Sendable {
         .agentNeedsInput, .ciFailed, .slackMention, .slackDM,
     ]
 
-    /// - alert:   ANY current event needs the human.
+    /// - alert:   any UNVIEWED event (newer than lastSeenAt) needs the human.
     /// - success: most recent event is ciPassed/agentDone and the last event
-    ///            arrived < successDecay ago.
+    ///            arrived < successDecay ago (plays even while viewed — it's
+    ///            a transient celebration of something that just happened).
     /// - idle:    everything else.
-    static func resolve(events: [KatoEvent], lastEventAt: Date?, now: Date = Date()) -> MascotState {
-        if events.contains(where: { attentionKinds.contains($0.kind) }) {
+    static func resolve(events: [KatoEvent], lastEventAt: Date?, lastSeenAt: Date = .distantPast, now: Date = Date()) -> MascotState {
+        if events.contains(where: { attentionKinds.contains($0.kind) && $0.createdAt > lastSeenAt }) {
             return .alert
         }
         if let lastEventAt,

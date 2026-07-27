@@ -52,7 +52,9 @@ struct MenuContentView: View {
             }
         }
         // Menu content re-renders each time the menu opens; refresh the AX
-        // status here since TCC changes don't notify.
+        // status here since TCC changes don't notify. (No markSeen here:
+        // MenuBarExtra rebuilds this view on every state change, which would
+        // silently clear the unread badge whenever an event arrives.)
         .onAppear { appState.refreshAccessibilityStatus() }
     }
 }

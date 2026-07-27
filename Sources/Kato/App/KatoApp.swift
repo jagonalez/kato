@@ -24,8 +24,8 @@ struct KatoApp: App {
         } label: {
             HStack(spacing: 2) {
                 Image(systemName: "bolt.horizontal.circle")
-                if !appState.groups.isEmpty {
-                    Text("\(appState.groups.count)")
+                if appState.unreadCount > 0 {
+                    Text("\(appState.unreadCount)")
                 }
             }
         }
@@ -51,9 +51,28 @@ final class AppState: ObservableObject {
     }
     nonisolated static let mascotHiddenDefaultsKey = "kato.mascotHidden"
 
+    /// Newest event the user has viewed (panel expanded or menu opened).
+    /// Persisted so restarts don't resurrect a badge for old events.
+    @Published private(set) var lastSeenAt: Date {
+        didSet { UserDefaults.standard.set(lastSeenAt.timeIntervalSince1970, forKey: Self.lastSeenAtDefaultsKey) }
+    }
+    nonisolated static let lastSeenAtDefaultsKey = "kato.lastSeenAt"
+
     /// Events collapsed by title for display (one row per "github · o/r" /
     /// "claude · project"), newest event as each group's representative.
     var groups: [EventGroup] { EventGrouping.group(events) }
+
+    /// Groups with activity newer than the last time the user looked —
+    /// drives the red badge. Viewing the panel/menu clears it.
+    var unreadCount: Int {
+        groups.filter { $0.representative.createdAt > lastSeenAt }.count
+    }
+
+    /// The user has seen everything currently in the list.
+    func markSeen() {
+        lastSeenAt = Date()
+        recomputeMascotState() // alert face drops immediately, not on next tick
+    }
 
     let bus = EventBus()
     private var hookServer: HookServer?
@@ -69,6 +88,9 @@ final class AppState: ObservableObject {
     init() {
         _mascotHidden = Published(
             initialValue: UserDefaults.standard.bool(forKey: AppState.mascotHiddenDefaultsKey))
+        let seen = UserDefaults.standard.double(forKey: AppState.lastSeenAtDefaultsKey)
+        _lastSeenAt = Published(
+            initialValue: seen > 0 ? Date(timeIntervalSince1970: seen) : .distantPast)
     }
 
     func start() {
@@ -94,12 +116,8 @@ final class AppState: ObservableObject {
         }
         monitors.append(github)
 
-        // 2b. Slack monitor (Socket Mode; no-op without an app token).
-        let slack = SlackMonitor()
-        slack.start { event in
-            Task { await bus.ingest(event) }
-        }
-        monitors.append(slack)
+        // 2b. Slack monitor (polls as the user; no-op without a token).
+        startSlackMonitor()
 
         // 3. UI subscription.
         streamTask = Task { [weak self] in
@@ -120,6 +138,11 @@ final class AppState: ObservableObject {
                     }
                 }
                 self.events = snapshot
+                // Events arriving while the panel is already open are on
+                // screen, so they never become "unread".
+                if self.panelController?.expanded == true, self.unreadCount > 0 {
+                    self.markSeen()
+                }
                 self.recomputeMascotState()
             }
         }
@@ -170,7 +193,7 @@ final class AppState: ObservableObject {
     // MARK: - Mascot state
 
     func recomputeMascotState() {
-        mascotState = MascotState.resolve(events: events, lastEventAt: lastEventAt)
+        mascotState = MascotState.resolve(events: events, lastEventAt: lastEventAt, lastSeenAt: lastSeenAt)
         // Idle personality rotation (driven by the 5 s timer / event updates;
         // resets to kato-idle whenever alert/success takes over).
         idleRotation.update(active: mascotState == .idle)
@@ -256,6 +279,87 @@ final class AppState: ObservableObject {
 
     func clear() {
         Task { await bus.clear() }
+    }
+
+    // MARK: - Slack settings
+
+    /// Last status line from the Slack monitor ("connected as @you", auth
+    /// failures, …), shown in the settings pane.
+    @Published private(set) var slackStatus: String?
+    private var slackMonitor: SlackMonitor?
+
+    private func startSlackMonitor() {
+        let slack = SlackMonitor()
+        // Retract condition-based events when they clear (unread-marked DMs
+        // read again) instead of leaving them for manual dismissal.
+        slack.onRemove = { [bus] dedupeKey in
+            Task { await bus.remove(dedupeKeys: [dedupeKey]) }
+        }
+        slack.onStatus = { [weak self] status in
+            Task { @MainActor in self?.slackStatus = status }
+        }
+        slack.start { [bus] event in
+            Task { await bus.ingest(event) }
+        }
+        slackMonitor = slack
+    }
+
+    /// Current Slack settings as written in the app-support dir, for
+    /// pre-filling the settings pane.
+    func loadSlackSettings() -> (userToken: String, clientID: String, clientSecret: String, refreshToken: String) {
+        let dir = EventStore.defaultDirectory
+        var result = ("", "", "", "")
+        if let plain = try? String(contentsOf: dir.appendingPathComponent("slack-user-token"), encoding: .utf8) {
+            result.0 = plain.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let data = try? Data(contentsOf: dir.appendingPathComponent("slack-user-token.json")) {
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            decoder.dateDecodingStrategy = .iso8601
+            if let stored = try? decoder.decode(SlackUserTokenBox.Stored.self, from: data) {
+                result.0 = stored.accessToken ?? result.0
+                result.1 = stored.clientID ?? ""
+                result.2 = stored.clientSecret ?? ""
+                result.3 = stored.refreshToken ?? ""
+            }
+        }
+        return result
+    }
+
+    /// Persist Slack settings from the settings pane and restart the
+    /// monitor. A refresh token switches to the rotating-workspace JSON
+    /// format; empty user token removes the configuration entirely.
+    func saveSlackSettings(userToken: String, clientID: String, clientSecret: String, refreshToken: String) {
+        let dir = EventStore.defaultDirectory
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let plainFile = dir.appendingPathComponent("slack-user-token")
+        let jsonFile = dir.appendingPathComponent("slack-user-token.json")
+        try? FileManager.default.removeItem(at: plainFile)
+        try? FileManager.default.removeItem(at: jsonFile)
+
+        func trimmed(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let token = trimmed(userToken)
+        if !token.isEmpty {
+            if !trimmed(refreshToken).isEmpty {
+                let stored = SlackUserTokenBox.Stored(
+                    accessToken: token,
+                    refreshToken: trimmed(refreshToken),
+                    clientID: trimmed(clientID),
+                    clientSecret: trimmed(clientSecret))
+                let encoder = JSONEncoder()
+                encoder.keyEncodingStrategy = .convertToSnakeCase
+                encoder.dateEncodingStrategy = .iso8601
+                if let data = try? encoder.encode(stored) {
+                    try? data.write(to: jsonFile, options: .atomic)
+                }
+            } else {
+                try? token.write(to: plainFile, atomically: true, encoding: .utf8)
+            }
+        }
+
+        slackStatus = nil
+        slackMonitor?.stop()
+        startSlackMonitor()
     }
 
     func requestAccessibility() {

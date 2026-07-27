@@ -358,87 +358,11 @@ check(priorityEvent?.detail == "bob requested changes · alice commented · CI p
 check(GitHubMonitor.htmlURL(forAPIURL: "https://api.github.com/repos/helm/pull/pulls/7")?.absoluteString == prURL,
       "notification API URL maps to the PR html URL")
 
-// MARK: - SlackMonitor (Socket Mode envelope parsing)
+// MARK: - SlackMonitor (helpers)
 
-let mentionEnvelope: [String: Any] = [
-    "envelope_id": "e1",
-    "type": "events_api",
-    "payload": [
-        "team_id": "T1",
-        "event": [
-            "type": "app_mention",
-            "user": "U2",
-            "text": "<@U9> can you review <https://github.com/x/y/pull/1|the PR>?",
-            "ts": "1700000000.000100",
-            "channel": "C1",
-        ],
-    ],
-]
-let mention = SlackMonitor.makeEvent(envelope: mentionEnvelope)
-check(mention?.kind == .slackMention, "app_mention → slackMention")
-check(mention?.dedupeKey == "slack:C1:1700000000.000100", "dedupeKey is slack:<channel>:<ts>",
-      mention?.dedupeKey ?? "nil")
-check(mention?.url?.absoluteString == "slack://channel?team=T1&id=C1&message=p1700000000000100",
-      "url is the slack:// deep link", mention?.url?.absoluteString ?? "nil")
-check(mention?.detail == "@U9 can you review the PR?", "mrkdwn stripped from detail",
-      mention?.detail ?? "nil")
-check(mention?.focus == nil, "slack events never carry a focus target")
-check(mention?.createdAt == Date(timeIntervalSince1970: 1700000000.0001),
-      "createdAt comes from the slack ts")
-
-let dmEnvelope: [String: Any] = [
-    "type": "events_api",
-    "payload": [
-        "team_id": "T1",
-        "event": [
-            "type": "message", "channel_type": "im",
-            "user": "U2", "text": "ship it?",
-            "ts": "1700000001.000200", "channel": "D1",
-        ],
-    ],
-]
-check(SlackMonitor.makeEvent(envelope: dmEnvelope)?.kind == .slackDM, "IM message → slackDM")
-
-// Channel message naming the configured user → mention; without config → nil.
-let channelPing: [String: Any] = [
-    "type": "events_api",
-    "payload": [
-        "team_id": "T1",
-        "event": [
-            "type": "message", "channel_type": "channel",
-            "user": "U2", "text": "<@U5> ping",
-            "ts": "1700000002.000300", "channel": "C2",
-        ],
-    ],
-]
-check(SlackMonitor.makeEvent(envelope: channelPing, selfUserID: "U5")?.kind == .slackMention,
-      "channel message naming selfUserID → slackMention")
-check(SlackMonitor.makeEvent(envelope: channelPing) == nil,
-      "channel message ignored without selfUserID")
-
-// Bots, subtypes (edits/joins), and non-events_api envelopes are ignored.
-var botMessage = channelPing
-if var payload = botMessage["payload"] as? [String: Any],
-   var event = payload["event"] as? [String: Any] {
-    event["bot_id"] = "B1"
-    payload["event"] = event
-    botMessage["payload"] = payload
-}
-check(SlackMonitor.makeEvent(envelope: botMessage, selfUserID: "U5") == nil, "bot messages ignored")
-var edited = channelPing
-if var payload = edited["payload"] as? [String: Any],
-   var event = payload["event"] as? [String: Any] {
-    event["subtype"] = "message_changed"
-    payload["event"] = event
-    edited["payload"] = payload
-}
-check(SlackMonitor.makeEvent(envelope: edited, selfUserID: "U5") == nil, "subtype messages ignored")
-check(SlackMonitor.makeEvent(envelope: ["type": "hello"]) == nil, "non-events_api envelopes ignored")
-
-// Envelope bookkeeping.
-check(SlackMonitor.ackID(forEnvelope: mentionEnvelope) == "e1", "ackID extracts envelope_id")
-check(SlackMonitor.shouldReconnect(envelope: ["type": "disconnect"]), "disconnect frame → reconnect")
-check(!SlackMonitor.shouldReconnect(envelope: mentionEnvelope), "events_api frame → no reconnect")
+check(SlackMonitor.deepLink(team: "T1", channel: "C1", ts: "1700000000.000100")?.absoluteString
+        == "slack://channel?team=T1&id=C1&message=p1700000000000100",
+      "slack:// deep link format")
 
 // cleanText coverage.
 check(SlackMonitor.cleanText("<!channel> heads up") == "@channel heads up", "broadcast token")
@@ -453,21 +377,33 @@ check(SlackMonitor.cleanText("unclosed <tag") == "unclosed <tag", "unclosed < su
 let slackTemp = FileManager.default.temporaryDirectory
     .appendingPathComponent("kato-smoke-slack-\(UUID().uuidString)", isDirectory: true)
 try? FileManager.default.createDirectory(at: slackTemp, withIntermediateDirectories: true)
-try? "xapp-file\n".write(to: slackTemp.appendingPathComponent("slack-app-token"),
+try? "xoxp-file\n".write(to: slackTemp.appendingPathComponent("slack-user-token"),
                          atomically: true, encoding: .utf8)
-check(SlackMonitor.resolveToken(explicit: "xapp-arg",
-                                environment: ["KATO_SLACK_APP_TOKEN": "xapp-env"],
-                                stateDirectory: slackTemp) == "xapp-arg", "token: explicit wins")
+check(SlackMonitor.resolveToken(explicit: "xoxp-arg",
+                                environment: ["KATO_SLACK_USER_TOKEN": "xoxp-env"],
+                                stateDirectory: slackTemp) == "xoxp-arg", "token: explicit wins")
 check(SlackMonitor.resolveToken(explicit: nil,
-                                environment: ["KATO_SLACK_APP_TOKEN": "xapp-env"],
-                                stateDirectory: slackTemp) == "xapp-env", "token: env beats file")
+                                environment: ["KATO_SLACK_USER_TOKEN": "xoxp-env"],
+                                stateDirectory: slackTemp) == "xoxp-env", "token: env beats file")
 check(SlackMonitor.resolveToken(explicit: nil, environment: [:],
-                                stateDirectory: slackTemp) == "xapp-file",
+                                stateDirectory: slackTemp) == "xoxp-file",
       "token: file fallback, trimmed")
 check(SlackMonitor.resolveToken(explicit: nil, environment: [:],
                                 stateDirectory: slackTemp.deletingLastPathComponent()
                                     .appendingPathComponent("kato-smoke-none-\(UUID().uuidString)")) == nil,
       "token: nil when nothing configured")
+
+// Rotating-workspace box: slack-user-token.json beats the plain file.
+try? """
+{"client_id":"cid","client_secret":"sec","refresh_token":"xoxe-1-r","access_token":"xoxp-a"}
+""".write(to: slackTemp.appendingPathComponent("slack-user-token.json"),
+          atomically: true, encoding: .utf8)
+if let box = SlackMonitor.resolveUserTokenBox(explicit: nil, environment: [:], stateDirectory: slackTemp),
+   let token = try? await box.validToken() {
+    check(token == "xoxp-a", "token box: access token from json (no expiry → used as-is)", token)
+} else {
+    check(false, "token box: json loads")
+}
 try? FileManager.default.removeItem(at: slackTemp)
 
 // MARK: - MascotIdleRotation (idle personality cycle)

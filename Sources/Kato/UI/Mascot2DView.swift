@@ -15,6 +15,9 @@ struct Mascot2DView: View {
     let hovered: Bool
     /// Increments on each fresh event — the mascot hops on every bump.
     let activityTick: Int
+    /// True while music is playing — the mascot dances (flipbook dance
+    /// artwork when present, procedural bop otherwise).
+    let dancing: Bool
 
     @State private var bobUp = false
     @State private var breathing = false
@@ -23,6 +26,13 @@ struct Mascot2DView: View {
     @State private var hopOffset: CGFloat = 0
     @State private var landingSquash = false
     @State private var glowPulse = false
+    /// Dancing phase: alternates every beat while `dancing` is true.
+    /// Mirrored into state (not read from the `dancing` let) so the
+    /// recursive beat loop always sees the current value.
+    @State private var isDancing = false
+    @State private var danceUp = false
+    /// Alternates the kato-dance-a / kato-dance-b flipbook frame each beat.
+    @State private var danceFrameB = false
     /// First observed tick (launch / persisted restore) stays silent.
     @State private var lastTick: Int?
     /// Artwork actually on screen — swaps are animated explicitly so idle
@@ -53,9 +63,19 @@ struct Mascot2DView: View {
 
     private var isSleeping: Bool { displayedName == "kato-idle-sleep" }
 
-    /// Artwork to draw right now: the eyes-closed frame during a blink
+    /// Both flipbook dance frames exist in the bundle.
+    private var hasDanceArt: Bool {
+        AssetLoader.image(named: "kato-dance-a") != nil
+            && AssetLoader.image(named: "kato-dance-b") != nil
+    }
+
+    /// Artwork to draw right now: the flipbook dance frame while dancing
+    /// (when those assets exist), the eyes-closed frame during a blink
     /// (when that asset exists), else the current pose.
     private var frameName: String {
+        if isDancing, hasDanceArt {
+            return danceFrameB ? "kato-dance-b" : "kato-dance-a"
+        }
         let blinkName = "\(displayedName)-blink"
         if blinking, AssetLoader.image(named: blinkName) != nil {
             return blinkName
@@ -91,8 +111,12 @@ struct Mascot2DView: View {
                         ? .opacity
                         : .scale(scale: 0.8).combined(with: .opacity))
             }
-            if isSleeping {
+            if isSleeping, !isDancing {
                 SleepZsView()
+                    .transition(.opacity)
+            }
+            if isDancing {
+                MusicNotesView()
                     .transition(.opacity)
             }
             if state == .success {
@@ -100,12 +124,12 @@ struct Mascot2DView: View {
                     .transition(.opacity)
             }
         }
-        .offset(x: trembling ? 2 : -2,
-                y: (bobUp ? -3 : 3) + hopOffset)
-        .scaleEffect(x: 1.0, y: breathing ? 1.018 : 0.99, anchor: .bottom)
+        .offset(x: trembling ? 2 : (isDancing ? (danceUp ? 5 : -5) : -2),
+                y: (isDancing ? (danceUp ? -8 : 2) : (bobUp ? -3 : 3)) + hopOffset)
+        .scaleEffect(x: 1.0, y: isDancing ? (danceUp ? 1.05 : 0.93) : (breathing ? 1.018 : 0.99), anchor: .bottom)
         .scaleEffect(x: landingSquash ? 1.06 : 1.0,
                      y: landingSquash ? 0.92 : 1.0, anchor: .bottom)
-        .rotationEffect(.degrees(swaying ? 1.4 : -1.4), anchor: .bottom)
+        .rotationEffect(.degrees(isDancing ? (danceUp ? 7 : -7) : (swaying ? 1.4 : -1.4)), anchor: .bottom)
         .scaleEffect(hovered ? 1.04 : 1.0)
         .animation(.spring(response: 0.35, dampingFraction: 0.6), value: hovered)
         .onAppear {
@@ -121,6 +145,16 @@ struct Mascot2DView: View {
             }
             startAlertPulseIfNeeded()
             scheduleBlink()
+            isDancing = dancing
+            if dancing { startDanceLoop() }
+        }
+        .onChange(of: dancing) { _, nowDancing in
+            // Pop between the dance pose and the regular artwork.
+            gentleSwap = false
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                isDancing = nowDancing
+            }
+            if nowDancing { startDanceLoop() }
         }
         .onChange(of: imageName) { _, newName in
             // Slow drift between idle variants; pop on a real state change.
@@ -161,7 +195,7 @@ struct Mascot2DView: View {
         let delay = Double.random(in: 1.2...3.0)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [self] in
             guard !displayedName.isEmpty else { return }
-            guard !isSleeping,
+            guard !isSleeping, !isDancing,
                   AssetLoader.image(named: "\(displayedName)-blink") != nil else {
                 scheduleBlink()
                 return
@@ -172,6 +206,21 @@ struct Mascot2DView: View {
                 blinking = false
                 scheduleBlink()
             }
+        }
+    }
+
+    /// Beat loop (~1.25 steps/sec): flips the flipbook frame instantly and
+    /// alternates the procedural hop/tilt/squash so even poses without
+    /// dance artwork visibly bop. Recursion is tied to the view's
+    /// lifecycle via `isDancing` (mirrored from the `dancing` input).
+    private func startDanceLoop() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [self] in
+            guard isDancing else { return }
+            danceFrameB.toggle()
+            withAnimation(.easeInOut(duration: 0.35)) {
+                danceUp.toggle()
+            }
+            startDanceLoop()
         }
     }
 
@@ -220,6 +269,50 @@ private struct SleepZ: View {
             .opacity(rising ? 0 : 0.9)
             .onAppear {
                 withAnimation(.easeOut(duration: 1.8)
+                    .repeatForever(autoreverses: false)
+                    .delay(delay)) {
+                    rising = true
+                }
+            }
+    }
+}
+
+/// Music notes drifting up and fading in a staggered loop while the
+/// mascot dances, scattered across the top of the sprite.
+private struct MusicNotesView: View {
+    private let notes: [(symbol: String, size: CGFloat, x: CGFloat, delay: Double)] = [
+        ("♪", 14, -0.32, 0.0),
+        ("♫", 19, 0.30, 0.4),
+        ("♪", 12, 0.02, 0.8),
+    ]
+
+    var body: some View {
+        GeometryReader { geo in
+            ForEach(Array(notes.enumerated()), id: \.offset) { _, note in
+                MusicNote(symbol: note.symbol, size: note.size, delay: note.delay)
+                    .position(x: geo.size.width * (0.5 + note.x),
+                              y: geo.size.height * 0.16)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+private struct MusicNote: View {
+    let symbol: String
+    let size: CGFloat
+    let delay: Double
+    @State private var rising = false
+
+    var body: some View {
+        Text(symbol)
+            .font(.system(size: size, weight: .heavy, design: .rounded))
+            .foregroundStyle(.pink.opacity(0.9))
+            .shadow(color: .purple.opacity(0.5), radius: 3)
+            .offset(x: rising ? 6 : 0, y: rising ? -30 : 0)
+            .opacity(rising ? 0 : 0.9)
+            .onAppear {
+                withAnimation(.easeOut(duration: 1.2)
                     .repeatForever(autoreverses: false)
                     .delay(delay)) {
                     rising = true

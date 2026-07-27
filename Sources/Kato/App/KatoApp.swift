@@ -44,6 +44,8 @@ final class AppState: ObservableObject {
     /// Increments on each fresh event — the mascot moves on every bump,
     /// even when its state didn't change (second alert in a row, …).
     @Published private(set) var activityTick = 0
+    /// True while Spotify or Apple Music reports `playing` (MusicMonitor).
+    @Published private(set) var musicPlaying = false
     /// Menu-bar-only mode: the floating mascot orb/panel stays hidden.
     /// Persisted so the panel never appears across launches.
     @Published var mascotHidden: Bool {
@@ -83,6 +85,7 @@ final class AppState: ObservableObject {
     private var permissionTimer: Timer?
     private var lastEventAt: Date?
     private var idleRotation = MascotIdleRotation()
+    private var musicMonitor: MusicMonitor?
     private var didStart = false
 
     init() {
@@ -118,6 +121,13 @@ final class AppState: ObservableObject {
 
         // 2b. Slack monitor (polls as the user; no-op without a token).
         startSlackMonitor()
+
+        // 2c. Music monitor — the mascot dances while Spotify/Music plays.
+        let music = MusicMonitor { [weak self] playing in
+            Task { @MainActor in self?.musicPlaying = playing }
+        }
+        music.start()
+        musicMonitor = music
 
         // 3. UI subscription.
         streamTask = Task { [weak self] in

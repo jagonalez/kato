@@ -197,7 +197,8 @@ struct FloatingPanelView: View {
             OrbView(count: appState.unreadCount,
                     imageName: appState.mascotImageName,
                     state: appState.mascotState,
-                    tick: appState.activityTick)
+                    tick: appState.activityTick,
+                    dancing: appState.musicPlaying)
                 // Clicks/drags are handled by PanelHostingView so a drag
                 // can never be misread as a tap.
                 .onAppear { appState.refreshAccessibilityStatus() }

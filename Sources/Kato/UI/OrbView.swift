@@ -10,6 +10,8 @@ struct OrbView: View {
     let state: MascotState
     /// Increments on each fresh event — the mascot moves on every bump.
     let tick: Int
+    /// True while Spotify/Apple Music is playing — the mascot dances.
+    let dancing: Bool
 
     @State private var hovered = false
 
@@ -36,7 +38,8 @@ struct OrbView: View {
         Group {
             if AssetLoader.image(named: imageName) != nil {
                 Mascot2DView(imageName: imageName, state: state,
-                             hovered: hovered, activityTick: tick)
+                             hovered: hovered, activityTick: tick,
+                             dancing: dancing)
             } else {
                 fallbackOrb
             }

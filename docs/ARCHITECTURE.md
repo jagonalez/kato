@@ -137,7 +137,11 @@ Ghostty surface. Click on event → `FocusController`, in order:
      The orb is an animated 2D sprite (Assets/Mascot PNGs): continuous gentle
      bob, state-colored glow (cyan idle / pulsing orange alert / green
      success), a small spring hop on every fresh event (`activityTick`), and
-     a subtle hover lift. Artwork swaps crossfade at 0.3 s.
+     a subtle hover lift. Artwork swaps crossfade at 0.3 s. While Spotify or
+     Apple Music reports `playing` (`MusicMonitor`, 2 s AppleScript probes
+     guarded by NSRunningApplication so quit apps are never launched), the
+     mascot dances: kato-dance-a/b flipbook frames at ~1.25 flips/sec plus
+     procedural hop/tilt/squash and drifting music notes.
   2. **Popover mode**: classic menu-bar popover (fallback).
 - The mascot can be hidden entirely (**Hide Mascot** menu item, persisted via
   `kato.mascotHidden` in UserDefaults): the floating panel never appears and
